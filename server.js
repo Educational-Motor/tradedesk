@@ -445,7 +445,7 @@ app.get('/user/:username', (req, res) => {
 });
 
 // ── Public Profile ────────────────────────────────────────────────────────────
-app.get('/api/profile/:username', (req, res) => {
+app.get('/api/profile/:username', async (req, res) => {
   const row = db.prepare(`
     SELECT u.username, u.created_at, p.cash, p.starting_balance, p.positions, p.orders
     FROM users u
@@ -457,7 +457,18 @@ app.get('/api/profile/:username', (req, res) => {
 
   const positions  = JSON.parse(row.positions);
   const orders     = JSON.parse(row.orders);
-  const posValue   = Object.values(positions).reduce((sum, p) => sum + p.qty * p.avgCost, 0);
+
+  // Fetch live prices for positions
+  const symbols = Object.keys(positions);
+  const prices = {};
+  await Promise.all(symbols.map(async sym => {
+    prices[sym] = await getCachedQuote(sym);
+  }));
+
+  const posValue   = Object.entries(positions).reduce((sum, [sym, p]) => {
+    const livePrice = prices[sym] || p.avgCost;
+    return sum + p.qty * livePrice;
+  }, 0);
   const totalValue = row.cash + posValue;
   const start      = row.starting_balance || 100000;
   const returnPct  = +((totalValue - start) / start * 100).toFixed(2);
@@ -477,24 +488,58 @@ app.get('/api/profile/:username', (req, res) => {
     winRate:     sells.length ? +(wins.length / sells.length * 100).toFixed(0) : null,
     positions:   Object.entries(positions).map(([sym, p]) => ({
       symbol: sym, qty: p.qty, avgCost: +p.avgCost.toFixed(2),
-      bookValue: +(p.qty * p.avgCost).toFixed(2),
+      marketValue: +((prices[sym] || p.avgCost) * p.qty).toFixed(2),
     })),
     recentTrades: orders.slice(0, 20),
   });
 });
 
 // ── Leaderboard ──────────────────────────────────────────────────────────────
-app.get('/api/leaderboard', (req, res) => {
+// Cache live quotes briefly so the leaderboard doesn't hammer Finnhub
+const quoteCache = {};
+const QUOTE_CACHE_MS = 30000;
+
+async function getCachedQuote(symbol) {
+  const cached = quoteCache[symbol];
+  if (cached && Date.now() - cached.time < QUOTE_CACHE_MS) return cached.price;
+  try {
+    if (!FINNHUB_KEY) return null;
+    const r = await axios.get('https://finnhub.io/api/v1/quote', {
+      params: { symbol, token: FINNHUB_KEY }, timeout: 5000
+    });
+    const price = r.data.c > 0 ? r.data.c : null;
+    if (price) quoteCache[symbol] = { price, time: Date.now() };
+    return price;
+  } catch (_) { return null; }
+}
+
+app.get('/api/leaderboard', async (req, res) => {
   const rows = db.prepare(`
     SELECT u.username, p.cash, p.starting_balance, p.positions, p.orders, p.resets
     FROM users u
     JOIN portfolios p ON p.user_id = u.id
   `).all();
 
-  const entries = rows.map(row => {
+  // Collect all unique symbols across all portfolios
+  const allSymbols = new Set();
+  const parsed = rows.map(row => {
     const positions = JSON.parse(row.positions);
-    const orders    = JSON.parse(row.orders);
-    const posValue  = Object.values(positions).reduce((sum, pos) => sum + pos.qty * pos.avgCost, 0);
+    Object.keys(positions).forEach(sym => allSymbols.add(sym));
+    return { ...row, positions, orders: JSON.parse(row.orders) };
+  });
+
+  // Fetch live prices for all symbols in parallel
+  const prices = {};
+  await Promise.all([...allSymbols].map(async sym => {
+    prices[sym] = await getCachedQuote(sym);
+  }));
+
+  const entries = parsed.map(row => {
+    const { positions, orders } = row;
+    const posValue = Object.entries(positions).reduce((sum, [sym, pos]) => {
+      const livePrice = prices[sym] || pos.avgCost;
+      return sum + pos.qty * livePrice;
+    }, 0);
     const totalValue = row.cash + posValue;
     const start      = row.starting_balance || 100000;
     const totalReturn = totalValue - start;
