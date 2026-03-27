@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TradeDesk — Trader Profile</title>
+  <link rel="stylesheet" href="/profile.css" />
+</head>
+<body>
+
+<nav class="nav">
+  <a href="/" class="nav-logo">📈 TradeDesk</a>
+  <div class="nav-links">
+    <a href="/leaderboard.html" class="nav-link">🏆 Leaderboard</a>
+    <a href="/" class="nav-cta">Trade Now</a>
+  </div>
+</nav>
+
+<div id="app">
+  <div class="loading">Loading profile…</div>
+</div>
+
+<script>
+const username = location.pathname.split('/user/')[1]?.split('?')[0] || '';
+
+async function load() {
+  const data = await fetch(`/api/profile/${encodeURIComponent(username)}`)
+    .then(r => r.ok ? r.json() : null);
+
+  if (!data) {
+    document.getElementById('app').innerHTML =
+      `<div class="not-found"><div class="nf-icon">👤</div><div class="nf-msg">Trader "<strong>${esc(username)}</strong>" not found.</div><a href="/leaderboard.html" class="btn-back">← Back to Leaderboard</a></div>`;
+    return;
+  }
+
+  document.title = `${data.username} — TradeDesk`;
+  const pos = data.returnPct >= 0;
+  const initials = data.username.slice(0, 2).toUpperCase();
+  const memberYear = new Date(data.memberSince).getFullYear();
+
+  document.getElementById('app').innerHTML = `
+    <div class="profile-wrap">
+
+      <!-- Hero card -->
+      <div class="hero-card">
+        <div class="avatar">${initials}</div>
+        <div class="hero-info">
+          <h1 class="hero-name">${esc(data.username)}</h1>
+          <div class="hero-meta">Member since ${memberYear}</div>
+          <button class="share-btn" onclick="copyLink()">⎘ Copy profile link</button>
+        </div>
+        <div class="hero-return ${pos ? 'pos' : 'neg'}">${pos ? '+' : ''}${data.returnPct}%</div>
+      </div>
+
+      <!-- Stats row -->
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-val">${fmt(data.totalValue)}</div>
+          <div class="stat-lbl">PORTFOLIO VALUE</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val ${pos ? 'pos' : 'neg'}">${pos ? '+' : ''}${fmt(data.totalReturn)}</div>
+          <div class="stat-lbl">TOTAL RETURN</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val">${data.winRate != null ? data.winRate + '%' : '—'}</div>
+          <div class="stat-lbl">WIN RATE</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val">${data.totalTrades}</div>
+          <div class="stat-lbl">TOTAL TRADES</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val ${data.realizedPnl >= 0 ? 'pos' : 'neg'}">${data.realizedPnl >= 0 ? '+' : ''}${fmt(data.realizedPnl)}</div>
+          <div class="stat-lbl">REALIZED P&L</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val">${fmt(data.cash)}</div>
+          <div class="stat-lbl">CASH</div>
+        </div>
+      </div>
+
+      <div class="bottom-grid">
+
+        <!-- Open positions -->
+        <div class="panel">
+          <div class="panel-title">OPEN POSITIONS</div>
+          ${data.positions.length === 0
+            ? '<div class="empty">No open positions</div>'
+            : `<table class="data-table">
+                <thead><tr><th>Symbol</th><th class="r">Shares</th><th class="r">Avg Cost</th><th class="r">Book Value</th></tr></thead>
+                <tbody>
+                  ${data.positions.map(p => `
+                    <tr>
+                      <td class="sym">${esc(p.symbol)}</td>
+                      <td class="r">${p.qty}</td>
+                      <td class="r">${fmt(p.avgCost)}</td>
+                      <td class="r">${fmt(p.bookValue)}</td>
+                    </tr>`).join('')}
+                </tbody>
+              </table>`
+          }
+        </div>
+
+        <!-- Recent trades -->
+        <div class="panel">
+          <div class="panel-title">RECENT TRADES</div>
+          ${data.recentTrades.length === 0
+            ? '<div class="empty">No trades yet</div>'
+            : `<table class="data-table">
+                <thead><tr><th>Symbol</th><th>Side</th><th class="r">Qty</th><th class="r">Price</th><th class="r">P&L</th></tr></thead>
+                <tbody>
+                  ${data.recentTrades.map(o => {
+                    const pnl = o.realizedPnl != null
+                      ? `<span class="${o.realizedPnl >= 0 ? 'pos' : 'neg'}">${o.realizedPnl >= 0 ? '+' : ''}${fmt(o.realizedPnl)}</span>`
+                      : '<span class="dim">—</span>';
+                    return `<tr>
+                      <td class="sym">${esc(o.symbol)}</td>
+                      <td class="${o.side === 'buy' ? 'buy-lbl' : 'sell-lbl'}">${o.side.toUpperCase()}</td>
+                      <td class="r">${o.qty}</td>
+                      <td class="r">${fmt(o.price)}</td>
+                      <td class="r">${pnl}</td>
+                    </tr>`;
+                  }).join('')}
+                </tbody>
+              </table>`
+          }
+        </div>
+
+      </div>
+
+      <div class="cta-bar">
+        <a href="/" class="cta-btn">Open TradeDesk — it's free</a>
+      </div>
+
+    </div>
+  `;
+}
+
+function copyLink() {
+  navigator.clipboard.writeText(location.href).then(() => {
+    const btn = document.querySelector('.share-btn');
+    btn.textContent = '✓ Copied!';
+    setTimeout(() => { btn.textContent = '⎘ Copy profile link'; }, 2000);
+  });
+}
+
+function fmt(n) {
+  if (n == null) return '—';
+  const abs = Math.abs(n);
+  const s = abs >= 1000
+    ? '$' + abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : '$' + abs.toFixed(2);
+  return n < 0 ? '-' + s : s;
+}
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+load();
+</script>
+</body>
+</html>
