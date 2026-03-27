@@ -13,6 +13,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const FINNHUB_KEY = process.env.FINNHUB_API_KEY || '';
 
+app.set('trust proxy', 1); // needed behind Nginx/Cloudflare
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 app.use(session({
