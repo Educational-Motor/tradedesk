@@ -181,7 +181,12 @@ app.get('/api/quote/:symbol', async (req, res) => {
     const r = await axios.get('https://finnhub.io/api/v1/quote', {
       params: { symbol: req.params.symbol.toUpperCase(), token: FINNHUB_KEY }
     });
-    res.json(r.data);
+    const q = r.data;
+    // Finnhub returns all zeros for unsupported symbols — treat as unavailable
+    if (!q || (q.c === 0 && q.pc === 0 && q.h === 0 && q.l === 0)) {
+      return res.status(404).json({ error: 'No data available for this symbol' });
+    }
+    res.json(q);
   } catch (e) { res.status(500).json({ error: 'Failed to fetch quote' }); }
 });
 
@@ -366,17 +371,24 @@ app.post('/api/trade', requireAuth, async (req, res) => {
   try {
     if (FINNHUB_KEY) {
       const r = await axios.get('https://finnhub.io/api/v1/quote', {
-        params: { symbol: symbol.toUpperCase(), token: FINNHUB_KEY }
+        params: { symbol: symbol.toUpperCase(), token: FINNHUB_KEY },
+        timeout: 8000
       });
-      execPrice = orderType === 'limit' ? parseFloat(limitPrice) : (r.data.c || r.data.pc);
+      const q = r.data;
+      const marketPrice = (q.c > 0 ? q.c : null) || (q.pc > 0 ? q.pc : null);
+      if (orderType === 'limit') {
+        execPrice = parseFloat(limitPrice);
+      } else if (marketPrice) {
+        execPrice = marketPrice;
+      }
     } else {
       execPrice = orderType === 'limit' ? parseFloat(limitPrice) : mockQuote(symbol).c;
     }
   } catch (_) {
-    return res.status(500).json({ error: 'Could not get current price' });
+    return res.status(500).json({ error: 'Could not get current price — try again in a moment' });
   }
 
-  if (!execPrice || execPrice <= 0) return res.status(400).json({ error: 'Invalid price' });
+  if (!execPrice || execPrice <= 0) return res.status(400).json({ error: 'Price unavailable for this symbol' });
 
   const shares = parseFloat(qty);
   const totalCost = execPrice * shares;
