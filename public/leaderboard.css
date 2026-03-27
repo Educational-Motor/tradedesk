@@ -149,6 +149,9 @@ tr.rank-3 .td-rank { color: var(--bronze); }
 .td-return.neg { color: var(--red); }
 .td-winrate { color: var(--muted); }
 .td-trades { color: var(--muted); }
+.td-resets { color: var(--muted); }
+.td-resets.has-resets { color: var(--red); font-weight: 600; }
+.resets-badge { color: var(--red); font-weight: 600; }
 
 .lb-empty { padding: 52px; text-align: center; color: var(--muted); font-size: 13px; }
 .lb-empty a { color: var(--blue); border-bottom: 1px solid var(--blue); }
