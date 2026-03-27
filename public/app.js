@@ -340,8 +340,10 @@ function updateLivePrice(symbol, price) {
 
 // ── Quotes ────────────────────────────────────────────────────────────────────
 async function fetchQuote(symbol) {
-  const data = await fetch(`/api/quote/${symbol}`).then(r => r.json()).catch(() => null);
-  if (data) state.quotes[symbol] = data;
+  const resp = await fetch(`/api/quote/${symbol}`).catch(() => null);
+  if (!resp || !resp.ok) return null;
+  const data = await resp.json().catch(() => null);
+  if (data && data.c > 0) state.quotes[symbol] = data;
   return data;
 }
 
@@ -351,10 +353,14 @@ async function refreshAllQuotes() {
   if (state.quotes[state.currentSymbol]) {
     const q = state.quotes[state.currentSymbol];
     $('chart-price').textContent = formatPrice(q.c);
-    const chg = q.c - q.pc;
-    const pct = (chg / q.pc) * 100;
-    $('chart-change').textContent = `${chg >= 0 ? '+' : ''}${chg.toFixed(2)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
-    $('chart-change').className = `chart-chg ${chg >= 0 ? 'pos' : 'neg'}`;
+    if (q.c && q.pc) {
+      const chg = q.c - q.pc;
+      const pct = (chg / q.pc) * 100;
+      $('chart-change').textContent = `${chg >= 0 ? '+' : ''}${chg.toFixed(2)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
+      $('chart-change').className = `chart-chg ${chg >= 0 ? 'pos' : 'neg'}`;
+    } else {
+      $('chart-change').textContent = '';
+    }
   }
 }
 
@@ -618,10 +624,14 @@ async function loadChart(symbol, resolution = '5', days = 1) {
   const q = state.quotes[symbol];
   if (q) {
     $('chart-price').textContent = formatPrice(q.c);
-    const chg = q.c - q.pc;
-    const pct = (chg / q.pc) * 100;
-    $('chart-change').textContent = `${chg >= 0 ? '+' : ''}${chg.toFixed(2)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
-    $('chart-change').className = `chart-chg ${chg >= 0 ? 'pos' : 'neg'}`;
+    if (q.c > 0 && q.pc > 0) {
+      const chg = q.c - q.pc;
+      const pct = (chg / q.pc) * 100;
+      $('chart-change').textContent = `${chg >= 0 ? '+' : ''}${chg.toFixed(2)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
+      $('chart-change').className = `chart-chg ${chg >= 0 ? 'pos' : 'neg'}`;
+    } else {
+      $('chart-change').textContent = '';
+    }
   }
 
   $('order-symbol').value = symbol;
@@ -832,7 +842,8 @@ function renderPortfolio() {
 
   $('header-balance').textContent = formatDollar(totalValue);
   const pnlEl = $('header-pnl');
-  pnlEl.textContent = `${pnl >= 0 ? '+' : ''}${formatDollar(pnl)} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%)`;
+  const pnlPctSafe = isFinite(pnlPct) ? pnlPct.toFixed(2) : '0.00';
+  pnlEl.textContent = `${pnl >= 0 ? '+' : ''}${formatDollar(pnl)} (${pnl >= 0 ? '+' : ''}${pnlPctSafe}%)`;
   pnlEl.className = `acct-pnl ${pnl >= 0 ? 'pos' : 'neg'}`;
 
   $('order-avail-cash').textContent = formatDollar(p.cash);
@@ -1042,10 +1053,10 @@ function renderWatchlist() {
   }
   container.innerHTML = state.watchlist.map(sym => {
     const q = state.quotes[sym] || {};
-    const price = q.c || 0;
-    const pc = q.pc || price;
+    const price = q.c > 0 ? q.c : 0;
+    const pc = q.pc > 0 ? q.pc : price;
     const chg = price - pc;
-    const pct = pc ? (chg / pc) * 100 : 0;
+    const pct = pc > 0 ? (chg / pc) * 100 : 0;
     const dir = chg >= 0 ? 'up' : 'down';
     const name = DEFAULT_WATCHLIST.find(d => d.symbol === sym)?.name || sym;
     return `
@@ -1112,9 +1123,9 @@ async function renderRecommended(sector = state.currentSector) {
   const list = $('recommended-list');
   list.innerHTML = stocks.map(({ symbol, name }) => {
     const q = state.quotes[symbol] || {};
-    const price = q.c || 0;
-    const chg = price - (q.pc || price);
-    const pct = q.pc ? (chg / q.pc) * 100 : 0;
+    const price = q.c > 0 ? q.c : 0;
+    const chg = price - (q.pc > 0 ? q.pc : price);
+    const pct = q.pc > 0 ? (chg / q.pc) * 100 : 0;
     const inWatchlist = state.watchlist.includes(symbol);
     return `
       <div class="rec-item" onclick="selectSymbol('${symbol}')">
