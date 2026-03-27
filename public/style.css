@@ -69,6 +69,13 @@ body { display: flex; flex-direction: column; height: 100vh; }
 .header-center { flex: 1; max-width: 400px; }
 
 .logo { font-size: 15px; font-weight: 700; color: var(--text); letter-spacing: -0.5px; }
+.lb-link {
+  font-size: 11px; font-weight: 700; color: var(--yellow);
+  border: 1px solid rgba(227,179,65,0.4); padding: 3px 9px;
+  border-radius: var(--radius); background: rgba(227,179,65,0.08);
+  text-decoration: none; transition: all 0.15s; letter-spacing: 0.3px;
+}
+.lb-link:hover { background: rgba(227,179,65,0.15); border-color: var(--yellow); }
 
 .market-badge {
   padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600;
