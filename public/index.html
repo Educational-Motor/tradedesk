@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TradeDesk — Live Market Terminal</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+
+<!-- ── Header ─────────────────────────────────────────────────────────── -->
+<header id="header">
+  <div class="header-left">
+    <div class="logo">📈 TradeDesk</div>
+    <div id="market-status" class="market-badge">● LOADING</div>
+    <div id="demo-badge" class="demo-badge hidden">DEMO MODE</div>
+  </div>
+  <div class="header-center">
+    <div class="search-wrap">
+      <input id="search-input" type="text" placeholder="Search symbol or company…" autocomplete="off" />
+      <div id="search-results" class="search-dropdown hidden"></div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="account-info">
+      <span class="acct-label">PAPER ACCOUNT</span>
+      <span id="header-balance" class="acct-balance">$100,000.00</span>
+      <span id="header-pnl" class="acct-pnl">+$0.00</span>
+    </div>
+    <button id="reset-btn" class="btn-ghost" title="Reset portfolio">↺ Reset</button>
+    <div class="user-info">
+      <span id="header-username" class="user-name"></span>
+      <button id="logout-btn" class="btn-ghost" title="Sign out">↩ Out</button>
+    </div>
+  </div>
+</header>
+
+<!-- ── Main Grid ───────────────────────────────────────────────────────── -->
+<main id="main">
+
+  <!-- LEFT: Watchlist + Alerts + Recommended + Socials -->
+  <aside id="watchlist-panel">
+    <div class="panel-header">
+      <span>WATCHLIST</span>
+      <button id="add-symbol-btn" class="btn-icon" title="Add symbol">＋</button>
+    </div>
+    <div id="watchlist"></div>
+
+    <!-- Price Alerts -->
+    <div class="panel-header">
+      <span>PRICE ALERTS</span>
+      <button id="add-alert-btn" class="btn-icon" title="Add alert">＋</button>
+    </div>
+    <div id="alerts-list"><div class="empty-state" style="font-size:11px;">No alerts set</div></div>
+
+    <!-- Recommended -->
+    <div class="panel-header">
+      <span>RECOMMENDED</span>
+    </div>
+    <div id="recommended-tabs" class="rec-tabs">
+      <button class="rec-tab active" data-sector="indices">Indices</button>
+      <button class="rec-tab" data-sector="tech">Tech</button>
+      <button class="rec-tab" data-sector="energy">Energy</button>
+      <button class="rec-tab" data-sector="finance">Finance</button>
+    </div>
+    <div id="recommended-list"></div>
+
+    <!-- Market Hours -->
+    <div id="market-hours-panel">
+      <div class="panel-header"><span>MARKET HOURS</span></div>
+      <div id="market-hours-list"></div>
+    </div>
+
+    <!-- Social Links -->
+    <div class="social-links">
+      <a href="https://github.com/Educational-Motor" target="_blank" rel="noopener" class="social-btn">
+        <span class="social-icon">⌥</span> GitHub
+      </a>
+      <a href="https://instagram.com/yu.karlandrew" target="_blank" rel="noopener" class="social-btn">
+        <span class="social-icon">◈</span> Instagram
+      </a>
+    </div>
+  </aside>
+
+  <div class="drag-handle" id="drag-left"></div>
+
+  <!-- CENTER: Chart + News -->
+  <section id="center-panel" style="min-width:0">
+    <div id="chart-header">
+      <div>
+        <span id="chart-symbol" class="chart-sym">SPY</span>
+        <span id="chart-price" class="chart-price">—</span>
+        <span id="chart-change" class="chart-chg">—</span>
+      </div>
+      <div class="chart-controls">
+        <span class="tz-label">ET</span>
+        <button class="tf-btn active" data-resolution="5" data-days="1">1D</button>
+        <button class="tf-btn" data-resolution="60" data-days="5">5D</button>
+        <button class="tf-btn" data-resolution="D" data-days="30">1M</button>
+        <button class="tf-btn" data-resolution="D" data-days="90">3M</button>
+        <div class="ma-divider"></div>
+        <button class="ma-btn" data-ma="ema20"  title="20-period EMA">EMA 20</button>
+        <button class="ma-btn" data-ma="sma50"  title="50-period SMA">SMA 50</button>
+        <button class="ma-btn" data-ma="sma200" title="200-period SMA">SMA 200</button>
+      </div>
+    </div>
+    <div id="chart-area">
+      <div id="chart-main"></div>
+      <div id="chart-volume-label" class="indicator-label">VOL</div>
+      <div id="chart-rsi-wrap">
+        <div class="indicator-label">RSI <span id="rsi-value">—</span></div>
+        <div id="chart-rsi"></div>
+      </div>
+      <div id="chart-macd-wrap">
+        <div class="indicator-label">MACD <span id="macd-value">—</span> Signal <span id="signal-value">—</span></div>
+        <div id="chart-macd"></div>
+      </div>
+    </div>
+
+    <!-- News Feed -->
+    <div id="news-panel">
+      <div class="panel-header">
+        <span>MARKET NEWS</span>
+        <div class="news-tabs">
+          <button class="news-tab active" data-tab="all">All</button>
+          <button class="news-tab" data-tab="market">Market</button>
+          <button class="news-tab" data-tab="symbol">Symbol</button>
+          <button class="news-tab" data-tab="geopolitical">Geo</button>
+          <button class="news-tab" data-tab="energy">Energy</button>
+          <button class="news-tab" data-tab="forex">Forex</button>
+          <button class="news-tab" data-tab="crypto">Crypto</button>
+          <button class="news-tab" data-tab="merger">M&A</button>
+          <button class="news-tab" data-tab="calendar">📅 Cal</button>
+        </div>
+      </div>
+      <div id="news-feed"></div>
+    </div>
+  </section>
+
+  <div class="drag-handle" id="drag-right"></div>
+
+  <!-- RIGHT: Order Entry + Positions -->
+  <aside id="right-panel">
+
+    <!-- Order Entry -->
+    <div id="order-panel">
+      <div class="panel-header"><span>ORDER ENTRY</span></div>
+      <div class="order-tabs">
+        <button class="order-tab active" data-side="buy">BUY</button>
+        <button class="order-tab" data-side="sell">SELL</button>
+      </div>
+      <div class="order-form">
+        <label>Symbol
+          <input id="order-symbol" type="text" placeholder="AAPL" />
+        </label>
+        <label>Order Type
+          <select id="order-type">
+            <option value="market">Market</option>
+            <option value="limit">Limit</option>
+          </select>
+        </label>
+        <label id="limit-price-wrap" class="hidden">Limit Price
+          <input id="order-limit-price" type="number" placeholder="0.00" step="0.01" min="0" />
+        </label>
+        <label>Quantity
+          <input id="order-qty" type="number" placeholder="0" min="1" step="1" />
+        </label>
+        <div class="order-estimate">
+          <span>Est. Total</span>
+          <span id="order-est-total">—</span>
+        </div>
+        <div class="order-avail">
+          <span>Available Cash</span>
+          <span id="order-avail-cash">—</span>
+        </div>
+        <button id="submit-order" class="btn-buy-full">BUY</button>
+        <div id="order-msg" class="order-msg hidden"></div>
+      </div>
+    </div>
+
+    <!-- Positions -->
+    <div id="positions-panel">
+      <div class="panel-header">
+        <span>POSITIONS</span>
+        <span id="positions-count" class="badge">0</span>
+      </div>
+      <div id="positions-list"><div class="empty-state">No open positions</div></div>
+    </div>
+
+    <!-- Order History -->
+    <div id="history-panel">
+      <div class="panel-header">
+        <span>ORDER HISTORY</span>
+        <span id="history-count" class="badge">0</span>
+      </div>
+      <div id="history-list"><div class="empty-state">No orders yet</div></div>
+    </div>
+
+    <!-- Portfolio Stats -->
+    <div id="stats-panel">
+      <div class="panel-header"><span>PORTFOLIO STATS</span></div>
+      <div id="stats-content"></div>
+    </div>
+
+    <!-- Position Sizer -->
+    <div id="sizer-panel">
+      <div class="panel-header"><span>POSITION SIZER</span></div>
+      <div class="sizer-form">
+        <div class="sizer-row">
+          <label>Entry Price<input id="sizer-entry" type="number" placeholder="0.00" step="0.01" min="0" /></label>
+          <label>Stop Loss<input id="sizer-stop" type="number" placeholder="0.00" step="0.01" min="0" /></label>
+        </div>
+        <div class="sizer-row">
+          <label>Risk %<input id="sizer-risk" type="number" placeholder="1.0" step="0.1" value="1" min="0.1" max="20" /></label>
+          <label>Balance<input id="sizer-balance" type="number" placeholder="0" readonly /></label>
+        </div>
+        <div id="sizer-output" class="sizer-output">
+          <div class="sizer-out-cell"><div class="sizer-out-label">SHARES</div><div class="sizer-out-val">—</div></div>
+          <div class="sizer-out-cell"><div class="sizer-out-label">$ RISK</div><div class="sizer-out-val">—</div></div>
+          <div class="sizer-out-cell"><div class="sizer-out-label">POS SIZE</div><div class="sizer-out-val">—</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Fear & Greed Meter -->
+    <div id="fg-panel">
+      <div class="panel-header">
+        <span>FEAR &amp; GREED</span>
+        <button id="fg-refresh" class="btn-icon" title="Refresh">↻</button>
+      </div>
+      <div id="fg-content"><div class="empty-state" style="font-size:11px;">Loading…</div></div>
+    </div>
+
+  </aside>
+</main>
+
+<!-- ── News Ticker ─────────────────────────────────────────────────────── -->
+<footer id="ticker-bar">
+  <div class="ticker-label">NEWS</div>
+  <div class="ticker-track">
+    <div id="ticker-content" class="ticker-content">Loading market news…</div>
+  </div>
+</footer>
+
+<!-- ── News Popup ──────────────────────────────────────────────────────── -->
+<div id="news-popup" class="news-popup hidden">
+  <div class="popup-header">
+    <span class="popup-breaking">⚡ BREAKING</span>
+    <button id="popup-close" class="popup-close">✕</button>
+  </div>
+  <div id="popup-source" class="popup-source"></div>
+  <div id="popup-headline" class="popup-headline"></div>
+  <div id="popup-summary" class="popup-summary"></div>
+  <div class="popup-actions">
+    <span id="popup-symbol" class="popup-sym"></span>
+    <button id="popup-buy" class="btn-buy-sm">BUY</button>
+    <button id="popup-sell" class="btn-sell-sm">SELL</button>
+    <button id="popup-dismiss" class="btn-ghost-sm">Dismiss</button>
+  </div>
+</div>
+
+<!-- ── Add Alert Modal ────────────────────────────────────────────────── -->
+<div id="alert-overlay" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">Set Price Alert <button id="alert-modal-close">✕</button></div>
+    <label style="font-size:11px;color:var(--text-muted);display:flex;flex-direction:column;gap:4px;">Symbol
+      <input id="alert-symbol" type="text" placeholder="AAPL" />
+    </label>
+    <label style="font-size:11px;color:var(--text-muted);display:flex;flex-direction:column;gap:4px;">Alert when price goes
+      <select id="alert-direction">
+        <option value="above">Above ↑</option>
+        <option value="below">Below ↓</option>
+      </select>
+    </label>
+    <label style="font-size:11px;color:var(--text-muted);display:flex;flex-direction:column;gap:4px;">Target Price
+      <input id="alert-price" type="number" placeholder="0.00" step="0.01" min="0" />
+    </label>
+    <button id="alert-add-btn" class="btn-primary">Set Alert</button>
+  </div>
+</div>
+
+<!-- ── Add Symbol Modal ────────────────────────────────────────────────── -->
+<div id="modal-overlay" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">Add to Watchlist <button id="modal-close">✕</button></div>
+    <input id="modal-input" type="text" placeholder="Enter symbol e.g. AAPL" />
+    <button id="modal-add" class="btn-primary">Add Symbol</button>
+  </div>
+</div>
+
+<!-- ── Reset Confirm ───────────────────────────────────────────────────── -->
+<div id="reset-overlay" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">Reset Portfolio</div>
+    <p style="color:var(--text-muted);margin:12px 0;">This will reset your paper account to $100,000 and clear all positions and history.</p>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button id="reset-cancel" class="btn-ghost">Cancel</button>
+      <button id="reset-confirm" class="btn-danger">Reset</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Auth Overlay ──────────────────────────────────────────────────────── -->
+<div id="auth-overlay" class="auth-overlay">
+  <div class="auth-card">
+    <div class="auth-logo">📈 TradeDesk</div>
+    <p class="auth-tagline">Paper trading terminal. No real money.</p>
+    <div class="auth-tabs">
+      <button class="auth-tab active" data-tab="login">Sign In</button>
+      <button class="auth-tab" data-tab="register">Create Account</button>
+    </div>
+    <div class="auth-fields">
+      <input id="auth-username" type="text" placeholder="Username" autocomplete="username" spellcheck="false" />
+      <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password" />
+      <div id="auth-confirm-wrap" class="hidden">
+        <input id="auth-confirm" type="password" placeholder="Confirm password" autocomplete="new-password" />
+      </div>
+    </div>
+    <button id="auth-submit" class="auth-submit">Sign In</button>
+    <div id="auth-msg" class="auth-msg hidden"></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
