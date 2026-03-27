@@ -1448,6 +1448,37 @@ function setupEventListeners() {
     location.reload();
   };
 
+  // Share profile link
+  $('share-btn').onclick = () => {
+    const username = $('header-username').textContent.trim();
+    if (!username) return;
+    const url = `${location.origin}/user/${encodeURIComponent(username)}`;
+    navigator.clipboard.writeText(url).then(() => {
+      const btn = $('share-btn');
+      btn.textContent = '✓ Copied!';
+      setTimeout(() => { btn.textContent = '⎘ Share'; }, 2000);
+    });
+  };
+
+  // Mobile tab bar
+  document.querySelectorAll('.mob-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const panel = tab.dataset.panel;
+      // Update active tab
+      document.querySelectorAll('.mob-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      // Show the selected panel, hide others
+      const panels = { center: 'center-panel', right: 'right-panel', watchlist: 'watchlist-panel' };
+      Object.entries(panels).forEach(([key, id]) => {
+        document.getElementById(id).classList.toggle('mob-hidden', key !== panel);
+      });
+      // Resize chart if switching to it
+      if (panel === 'center') {
+        setTimeout(() => { if (state.chart) state.chart.timeScale().fitContent(); }, 50);
+      }
+    });
+  });
+
   // Reset
   $('reset-btn').onclick = () => $('reset-overlay').classList.remove('hidden');
   $('reset-cancel').onclick = () => $('reset-overlay').classList.add('hidden');

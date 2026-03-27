@@ -8,6 +8,9 @@ const path = require('path');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const Database = require('better-sqlite3');
+const SqliteStore = require('better-sqlite3-session-store')(session);
+const rateLimit = require('express-rate-limit');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -16,46 +19,106 @@ const FINNHUB_KEY = process.env.FINNHUB_API_KEY || '';
 app.set('trust proxy', 1); // needed behind Nginx/Cloudflare
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
+// Sessions persisted in SQLite — survives server restarts
+const sessionDb = new Database(path.join(__dirname, 'data', 'sessions.db'));
 app.use(session({
   secret: process.env.SESSION_SECRET || 'tradedesk-dev-secret-change-in-prod',
   resave: false,
   saveUninitialized: false,
+  store: new SqliteStore({ client: sessionDb, expired: { clear: true, intervalMs: 9e5 } }),
   cookie: { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 } // 7 days
 }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ── Data Storage ─────────────────────────────────────────────────────────────
+// ── Data Storage (SQLite) ─────────────────────────────────────────────────────
 const DATA_DIR = path.join(__dirname, 'data');
-const USERS_FILE = path.join(DATA_DIR, 'users.json');
+fs.mkdirSync(DATA_DIR, { recursive: true });
 
-function ensureDataDir() { fs.mkdirSync(DATA_DIR, { recursive: true }); }
+const db = new Database(path.join(DATA_DIR, 'tradedesk.db'));
+db.pragma('journal_mode = WAL');   // better concurrent performance
+db.pragma('foreign_keys = ON');
 
-function loadUsers() {
-  ensureDataDir();
-  if (!fs.existsSync(USERS_FILE)) return {};
-  try { return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8')); } catch (_) { return {}; }
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id           TEXT PRIMARY KEY,
+    username     TEXT UNIQUE NOT NULL COLLATE NOCASE,
+    password_hash TEXT NOT NULL,
+    created_at   TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS portfolios (
+    user_id          TEXT PRIMARY KEY REFERENCES users(id),
+    cash             REAL NOT NULL DEFAULT 100000,
+    starting_balance REAL NOT NULL DEFAULT 100000,
+    positions        TEXT NOT NULL DEFAULT '{}',
+    orders           TEXT NOT NULL DEFAULT '[]'
+  );
+`);
+
+// ── DB Helpers ────────────────────────────────────────────────────────────────
+function getUserByUsername(username) {
+  return db.prepare('SELECT * FROM users WHERE username = ?').get(username);
 }
-function saveUsers(users) {
-  ensureDataDir();
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+
+function createUser(id, username, passwordHash) {
+  db.prepare('INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)')
+    .run(id, username, passwordHash, new Date().toISOString());
+  // Create a fresh portfolio row for this user
+  db.prepare('INSERT INTO portfolios (user_id) VALUES (?)').run(id);
 }
 
-// ── Paper Trading State (per-user) ────────────────────────────────────────────
 function defaultPortfolio() {
   return { cash: 100000, positions: {}, orders: [], startingBalance: 100000 };
 }
+
 function loadUserPortfolio(userId) {
-  ensureDataDir();
-  const file = path.join(DATA_DIR, `portfolio-${userId}.json`);
-  if (fs.existsSync(file)) {
-    try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_) {}
-  }
-  return defaultPortfolio();
+  const row = db.prepare('SELECT * FROM portfolios WHERE user_id = ?').get(userId);
+  if (!row) return defaultPortfolio();
+  return {
+    cash:            row.cash,
+    startingBalance: row.starting_balance,
+    positions:       JSON.parse(row.positions),
+    orders:          JSON.parse(row.orders),
+  };
 }
+
 function saveUserPortfolio(userId, portfolio) {
-  ensureDataDir();
-  fs.writeFileSync(path.join(DATA_DIR, `portfolio-${userId}.json`), JSON.stringify(portfolio, null, 2));
+  db.prepare(`
+    INSERT INTO portfolios (user_id, cash, starting_balance, positions, orders)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET
+      cash             = excluded.cash,
+      starting_balance = excluded.starting_balance,
+      positions        = excluded.positions,
+      orders           = excluded.orders
+  `).run(
+    userId,
+    portfolio.cash,
+    portfolio.startingBalance ?? 100000,
+    JSON.stringify(portfolio.positions),
+    JSON.stringify(portfolio.orders),
+  );
 }
+
+// ── Rate Limiting ─────────────────────────────────────────────────────────────
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,                   // max 20 attempts per IP per window
+  message: { error: 'Too many attempts, please try again in 15 minutes' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 120,            // 120 requests/min per IP — plenty for normal use
+  message: { error: 'Too many requests, slow down' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use('/api/', apiLimiter);
+app.use('/api/login', authLimiter);
+app.use('/api/register', authLimiter);
 
 // ── Auth Middleware ───────────────────────────────────────────────────────────
 function requireAuth(req, res, next) {
@@ -75,15 +138,13 @@ app.post('/api/register', async (req, res) => {
   if (username.length < 3) return res.status(400).json({ error: 'Username must be at least 3 characters' });
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
 
-  const users = loadUsers();
-  if (Object.values(users).find(u => u.username.toLowerCase() === username.toLowerCase())) {
+  if (getUserByUsername(username)) {
     return res.status(400).json({ error: 'Username already taken' });
   }
 
   const id = crypto.randomUUID();
   const passwordHash = await bcrypt.hash(password, 10);
-  users[id] = { id, username, passwordHash, createdAt: new Date().toISOString() };
-  saveUsers(users);
+  createUser(id, username, passwordHash);
 
   req.session.userId = id;
   req.session.username = username;
@@ -94,9 +155,8 @@ app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
 
-  const users = loadUsers();
-  const user = Object.values(users).find(u => u.username.toLowerCase() === username.toLowerCase());
-  if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+  const user = getUserByUsername(username);
+  if (!user || !(await bcrypt.compare(password, user.password_hash))) {
     return res.status(401).json({ error: 'Invalid username or password' });
   }
 
@@ -358,29 +418,78 @@ app.post('/api/portfolio/reset', requireAuth, (req, res) => {
   res.json({ success: true, portfolio });
 });
 
+// ── Profile page route ───────────────────────────────────────────────────────
+app.get('/user/:username', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'profile.html'));
+});
+
+// ── Public Profile ────────────────────────────────────────────────────────────
+app.get('/api/profile/:username', (req, res) => {
+  const row = db.prepare(`
+    SELECT u.username, u.created_at, p.cash, p.starting_balance, p.positions, p.orders
+    FROM users u
+    JOIN portfolios p ON p.user_id = u.id
+    WHERE u.username = ? COLLATE NOCASE
+  `).get(req.params.username);
+
+  if (!row) return res.status(404).json({ error: 'User not found' });
+
+  const positions  = JSON.parse(row.positions);
+  const orders     = JSON.parse(row.orders);
+  const posValue   = Object.values(positions).reduce((sum, p) => sum + p.qty * p.avgCost, 0);
+  const totalValue = row.cash + posValue;
+  const start      = row.starting_balance || 100000;
+  const returnPct  = +((totalValue - start) / start * 100).toFixed(2);
+  const sells      = orders.filter(o => o.side === 'sell' && o.realizedPnl != null);
+  const wins       = sells.filter(o => o.realizedPnl > 0);
+  const realizedPnl = +sells.reduce((s, o) => s + o.realizedPnl, 0).toFixed(2);
+
+  res.json({
+    username:    row.username,
+    memberSince: row.created_at,
+    totalValue:  +totalValue.toFixed(2),
+    cash:        +row.cash.toFixed(2),
+    returnPct,
+    totalReturn: +(totalValue - start).toFixed(2),
+    realizedPnl,
+    totalTrades: orders.length,
+    winRate:     sells.length ? +(wins.length / sells.length * 100).toFixed(0) : null,
+    positions:   Object.entries(positions).map(([sym, p]) => ({
+      symbol: sym, qty: p.qty, avgCost: +p.avgCost.toFixed(2),
+      bookValue: +(p.qty * p.avgCost).toFixed(2),
+    })),
+    recentTrades: orders.slice(0, 20),
+  });
+});
+
 // ── Leaderboard ──────────────────────────────────────────────────────────────
 app.get('/api/leaderboard', (req, res) => {
-  const users = loadUsers();
-  const entries = Object.values(users).map(user => {
-    const portfolio = loadUserPortfolio(user.id);
-    const posValue = Object.values(portfolio.positions || {})
-      .reduce((sum, pos) => sum + pos.qty * pos.avgCost, 0);
-    const totalValue = portfolio.cash + posValue;
-    const start = portfolio.startingBalance || 100000;
+  const rows = db.prepare(`
+    SELECT u.username, p.cash, p.starting_balance, p.positions, p.orders
+    FROM users u
+    JOIN portfolios p ON p.user_id = u.id
+  `).all();
+
+  const entries = rows.map(row => {
+    const positions = JSON.parse(row.positions);
+    const orders    = JSON.parse(row.orders);
+    const posValue  = Object.values(positions).reduce((sum, pos) => sum + pos.qty * pos.avgCost, 0);
+    const totalValue = row.cash + posValue;
+    const start      = row.starting_balance || 100000;
     const totalReturn = totalValue - start;
-    const returnPct = +(totalReturn / start * 100).toFixed(2);
-    const orders = portfolio.orders || [];
+    const returnPct   = +(totalReturn / start * 100).toFixed(2);
     const sells = orders.filter(o => o.side === 'sell' && o.realizedPnl != null);
-    const wins = sells.filter(o => o.realizedPnl > 0);
+    const wins  = sells.filter(o => o.realizedPnl > 0);
     return {
-      username: user.username,
-      totalValue: +totalValue.toFixed(2),
+      username:    row.username,
+      totalValue:  +totalValue.toFixed(2),
       totalReturn: +totalReturn.toFixed(2),
       returnPct,
       totalTrades: orders.length,
       winRate: sells.length ? +(wins.length / sells.length * 100).toFixed(0) : null,
     };
   }).sort((a, b) => b.returnPct - a.returnPct);
+
   res.json(entries);
 });
 

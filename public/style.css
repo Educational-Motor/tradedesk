@@ -604,3 +604,93 @@ body { display: flex; flex-direction: column; height: 100vh; }
 }
 .fg-comp { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); padding: 1px 0; }
 .fg-comp-val { color: var(--text); font-weight: 600; }
+
+/* ── Mobile Tab Bar ────────────────────────────────────────────────────── */
+#mobile-tabs {
+  display: none;
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 200;
+  background: var(--bg-panel); border-top: 1px solid var(--border);
+  height: 56px;
+}
+.mob-tab {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 3px;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.5px;
+  color: var(--text-muted); cursor: pointer; border: none;
+  background: none; font-family: inherit; transition: color 0.15s;
+}
+.mob-tab .mob-icon { font-size: 18px; line-height: 1; }
+.mob-tab.active { color: var(--blue); }
+
+/* ── Mobile Layout ─────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  html, body { overflow: auto; height: auto; }
+
+  #mobile-tabs { display: flex; }
+
+  /* Header: condense */
+  #header { padding: 0 10px; gap: 8px; height: 44px; min-height: 44px; }
+  .header-center { display: none; } /* search hidden on mobile */
+  .market-badge { display: none; }
+  .demo-badge { display: none; }
+  .acct-label { display: none; }
+  .logo { font-size: 14px; }
+  #header-balance { font-size: 12px; }
+  #header-pnl { font-size: 11px; }
+  #share-btn { display: none; }
+  #reset-btn { display: none; }
+
+  /* Hide ticker on mobile — saves vertical space */
+  #ticker-bar { display: none; }
+
+  /* Main: single column, full width */
+  #main {
+    display: flex; flex-direction: column;
+    height: auto; overflow: visible;
+    min-height: calc(100vh - 44px - 56px);
+  }
+
+  /* Drag handles hidden on mobile */
+  .drag-handle { display: none; }
+
+  /* All three panels fill full width, toggled by JS */
+  #watchlist-panel,
+  #center-panel,
+  #right-panel {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  /* Active panel shown, others hidden */
+  #watchlist-panel.mob-hidden,
+  #center-panel.mob-hidden,
+  #right-panel.mob-hidden { display: none; }
+
+  /* Chart: shorter on mobile */
+  #chart-area { height: 280px !important; }
+  #chart-main { height: 160px !important; }
+
+  /* Chart controls: scrollable row */
+  #chart-header { flex-wrap: wrap; gap: 6px; padding: 6px 10px; }
+  .chart-controls { flex-wrap: wrap; gap: 4px; }
+
+  /* Right panel: remove fixed height on history */
+  #history-panel { max-height: none !important; }
+
+  /* Order form: full width inputs */
+  .order-form label { display: flex; flex-direction: column; }
+
+  /* Sizer: stack instead of grid */
+  .sizer-row { grid-template-columns: 1fr; }
+
+  /* Position panel: card-style on mobile */
+  .position-row { flex-wrap: wrap; }
+
+  /* Add padding at bottom so content isn't hidden behind tab bar */
+  #right-panel { padding-bottom: 64px; }
+  #watchlist-panel { padding-bottom: 64px; }
+  #center-panel { padding-bottom: 64px; }
+}
