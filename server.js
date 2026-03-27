@@ -38,6 +38,9 @@ const db = new Database(path.join(DATA_DIR, 'tradedesk.db'));
 db.pragma('journal_mode = WAL');   // better concurrent performance
 db.pragma('foreign_keys = ON');
 
+// Migration: add resets column if missing
+try { db.exec('ALTER TABLE portfolios ADD COLUMN resets INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id           TEXT PRIMARY KEY,
@@ -50,7 +53,8 @@ db.exec(`
     cash             REAL NOT NULL DEFAULT 100000,
     starting_balance REAL NOT NULL DEFAULT 100000,
     positions        TEXT NOT NULL DEFAULT '{}',
-    orders           TEXT NOT NULL DEFAULT '[]'
+    orders           TEXT NOT NULL DEFAULT '[]',
+    resets           INTEGER NOT NULL DEFAULT 0
   );
 `);
 
@@ -67,7 +71,7 @@ function createUser(id, username, passwordHash) {
 }
 
 function defaultPortfolio() {
-  return { cash: 100000, positions: {}, orders: [], startingBalance: 100000 };
+  return { cash: 100000, positions: {}, orders: [], startingBalance: 100000, resets: 0 };
 }
 
 function loadUserPortfolio(userId) {
@@ -78,24 +82,27 @@ function loadUserPortfolio(userId) {
     startingBalance: row.starting_balance,
     positions:       JSON.parse(row.positions),
     orders:          JSON.parse(row.orders),
+    resets:          row.resets || 0,
   };
 }
 
 function saveUserPortfolio(userId, portfolio) {
   db.prepare(`
-    INSERT INTO portfolios (user_id, cash, starting_balance, positions, orders)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO portfolios (user_id, cash, starting_balance, positions, orders, resets)
+    VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(user_id) DO UPDATE SET
       cash             = excluded.cash,
       starting_balance = excluded.starting_balance,
       positions        = excluded.positions,
-      orders           = excluded.orders
+      orders           = excluded.orders,
+      resets           = excluded.resets
   `).run(
     userId,
     portfolio.cash,
     portfolio.startingBalance ?? 100000,
     JSON.stringify(portfolio.positions),
     JSON.stringify(portfolio.orders),
+    portfolio.resets ?? 0,
   );
 }
 
@@ -425,7 +432,9 @@ app.post('/api/trade', requireAuth, async (req, res) => {
 });
 
 app.post('/api/portfolio/reset', requireAuth, (req, res) => {
+  const current = loadUserPortfolio(req.session.userId);
   const portfolio = defaultPortfolio();
+  portfolio.resets = (current.resets || 0) + 1;
   saveUserPortfolio(req.session.userId, portfolio);
   res.json({ success: true, portfolio });
 });
@@ -477,7 +486,7 @@ app.get('/api/profile/:username', (req, res) => {
 // ── Leaderboard ──────────────────────────────────────────────────────────────
 app.get('/api/leaderboard', (req, res) => {
   const rows = db.prepare(`
-    SELECT u.username, p.cash, p.starting_balance, p.positions, p.orders
+    SELECT u.username, p.cash, p.starting_balance, p.positions, p.orders, p.resets
     FROM users u
     JOIN portfolios p ON p.user_id = u.id
   `).all();
@@ -499,6 +508,7 @@ app.get('/api/leaderboard', (req, res) => {
       returnPct,
       totalTrades: orders.length,
       winRate: sells.length ? +(wins.length / sells.length * 100).toFixed(0) : null,
+      resets: row.resets || 0,
     };
   }).sort((a, b) => b.returnPct - a.returnPct);
 

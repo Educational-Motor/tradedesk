@@ -44,6 +44,7 @@ function renderPodium(entries) {
       <div class="podium-meta">
         <span>${entry.totalTrades} trade${entry.totalTrades !== 1 ? 's' : ''}</span>
         ${entry.winRate != null ? `<span>${entry.winRate}% win rate</span>` : ''}
+        ${entry.resets > 0 ? `<span class="resets-badge">${entry.resets} reset${entry.resets !== 1 ? 's' : ''}</span>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -70,6 +71,7 @@ function renderTable(entries) {
       <td class="td-return ${pos ? 'pos' : 'neg'}">${fmtPct(e.returnPct)}</td>
       <td class="td-winrate">${e.winRate != null ? e.winRate + '%' : '—'}</td>
       <td class="td-trades">${e.totalTrades}</td>
+      <td class="td-resets ${e.resets > 0 ? 'has-resets' : ''}">${e.resets || 0}</td>
     </tr>`;
   }).join('');
 }

@@ -129,16 +129,16 @@ async function init() {
   setInterval(renderMarketHours, 60000);
 
   renderWatchlist();
-  await loadPortfolio();
   setupWebSocket();
 
-  // Load initial quotes for watchlist
-  await refreshAllQuotes();
+  // Load everything in parallel for faster startup
+  await Promise.all([
+    loadPortfolio(),
+    refreshAllQuotes(),
+    loadChart(state.currentSymbol),
+    loadNews(),
+  ]);
   renderRecommended();
-
-  // Load chart for default symbol
-  await loadChart(state.currentSymbol);
-  await loadNews();
 
   setInterval(refreshAllQuotes, 15000);
   setInterval(() => renderRecommended(), 15000);
