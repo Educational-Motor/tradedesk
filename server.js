@@ -358,6 +358,32 @@ app.post('/api/portfolio/reset', requireAuth, (req, res) => {
   res.json({ success: true, portfolio });
 });
 
+// ── Leaderboard ──────────────────────────────────────────────────────────────
+app.get('/api/leaderboard', (req, res) => {
+  const users = loadUsers();
+  const entries = Object.values(users).map(user => {
+    const portfolio = loadUserPortfolio(user.id);
+    const posValue = Object.values(portfolio.positions || {})
+      .reduce((sum, pos) => sum + pos.qty * pos.avgCost, 0);
+    const totalValue = portfolio.cash + posValue;
+    const start = portfolio.startingBalance || 100000;
+    const totalReturn = totalValue - start;
+    const returnPct = +(totalReturn / start * 100).toFixed(2);
+    const orders = portfolio.orders || [];
+    const sells = orders.filter(o => o.side === 'sell' && o.realizedPnl != null);
+    const wins = sells.filter(o => o.realizedPnl > 0);
+    return {
+      username: user.username,
+      totalValue: +totalValue.toFixed(2),
+      totalReturn: +totalReturn.toFixed(2),
+      returnPct,
+      totalTrades: orders.length,
+      winRate: sells.length ? +(wins.length / sells.length * 100).toFixed(0) : null,
+    };
+  }).sort((a, b) => b.returnPct - a.returnPct);
+  res.json(entries);
+});
+
 // ── Fear & Greed Index ───────────────────────────────────────────────────────
 app.get('/api/fear-greed', async (req, res) => {
   try {

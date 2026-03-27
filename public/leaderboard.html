@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TradeDesk — Leaderboard</title>
+  <link rel="stylesheet" href="leaderboard.css" />
+</head>
+<body>
+
+<nav class="nav">
+  <a href="/" class="nav-logo">📈 TradeDesk</a>
+  <a href="/" class="nav-cta">Enter Terminal →</a>
+</nav>
+
+<div class="hero">
+  <div class="hero-eyebrow">PAPER TRADING COMPETITION</div>
+  <h1 class="hero-title">LEADERBOARD</h1>
+  <p class="hero-sub">Who's running the best portfolio? $100,000 starting balance. No real money.</p>
+  <div class="hero-stats">
+    <div class="hero-stat">
+      <span id="stat-traders">—</span>
+      <label>TRADERS</label>
+    </div>
+    <div class="hero-divider"></div>
+    <div class="hero-stat">
+      <span id="stat-updated">—</span>
+      <label>LAST UPDATED</label>
+    </div>
+  </div>
+</div>
+
+<main class="container">
+
+  <!-- Podium -->
+  <div class="podium" id="podium">
+    <div class="podium-card second podium-empty"><div class="podium-medal">🥈</div><div class="podium-rank silver">#2</div><div class="podium-name">—</div></div>
+    <div class="podium-card first  podium-empty"><div class="podium-medal">🥇</div><div class="podium-rank gold">#1</div><div class="podium-name">—</div></div>
+    <div class="podium-card third  podium-empty"><div class="podium-medal">🥉</div><div class="podium-rank bronze">#3</div><div class="podium-name">—</div></div>
+  </div>
+
+  <!-- Table -->
+  <div class="table-card">
+    <div class="table-header">
+      <span class="table-title">ALL TRADERS</span>
+      <span id="refresh-label" class="refresh-label">Refreshes every 30s</span>
+    </div>
+    <div class="table-wrap">
+      <table class="lb-table">
+        <thead>
+          <tr>
+            <th class="th-rank">#</th>
+            <th>TRADER</th>
+            <th class="th-right">PORTFOLIO</th>
+            <th class="th-right">RETURN</th>
+            <th class="th-right">WIN RATE</th>
+            <th class="th-right">TRADES</th>
+          </tr>
+        </thead>
+        <tbody id="lb-body"></tbody>
+      </table>
+      <div id="lb-empty" class="lb-empty hidden">
+        No traders yet — <a href="/">be the first</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- CTA -->
+  <div class="cta">
+    <div class="cta-inner">
+      <h2>Think you can top the board?</h2>
+      <p>Start with $100,000 in paper money. Practice reading charts, news, and executing trades — zero risk.</p>
+      <a href="/" class="cta-btn">Start Trading →</a>
+    </div>
+  </div>
+
+</main>
+
+<footer class="footer">
+  <span>Built by <a href="https://github.com/Educational-Motor" target="_blank">Educational-Motor</a></span>
+  <span class="footer-sep">·</span>
+  <a href="https://github.com/Educational-Motor/tradedesk" target="_blank">GitHub</a>
+  <span class="footer-sep">·</span>
+  <a href="https://instagram.com/yu.karlandrew" target="_blank">Instagram</a>
+</footer>
+
+<script src="leaderboard.js"></script>
+</body>
+</html>
