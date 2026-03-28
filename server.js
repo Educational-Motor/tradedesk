@@ -117,7 +117,7 @@ const authLimiter = rateLimit({
 
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 120,            // 120 requests/min per IP — plenty for normal use
+  max: 300,            // 300 requests/min per IP — app fetches many quotes on load
   message: { error: 'Too many requests, slow down' },
   standardHeaders: true,
   legacyHeaders: false,

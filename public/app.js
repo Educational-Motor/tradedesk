@@ -138,6 +138,8 @@ async function init() {
     loadChart(state.currentSymbol),
     loadNews(),
   ]);
+  // Re-render portfolio now that live quotes are available
+  renderPortfolio();
   renderRecommended();
 
   setInterval(refreshAllQuotes, 15000);
@@ -348,8 +350,12 @@ async function fetchQuote(symbol) {
 }
 
 async function refreshAllQuotes() {
-  await Promise.all(state.watchlist.map(sym => fetchQuote(sym)));
+  // Fetch quotes for watchlist AND any held positions
+  const positionSymbols = Object.keys(state.portfolio?.positions || {});
+  const allSymbols = [...new Set([...state.watchlist, ...positionSymbols])];
+  await Promise.all(allSymbols.map(sym => fetchQuote(sym)));
   renderWatchlist();
+  renderPortfolio();
   if (state.quotes[state.currentSymbol]) {
     const q = state.quotes[state.currentSymbol];
     $('chart-price').textContent = formatPrice(q.c);
