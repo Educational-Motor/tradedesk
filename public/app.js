@@ -145,7 +145,6 @@ async function init() {
   setInterval(refreshAllQuotes, 15000);
   setInterval(() => renderRecommended(), 15000);
   setInterval(loadNews, 45000);
-  setInterval(refreshPositionPrices, 15000);
 
   fetchAndRenderFearGreed();
   setInterval(fetchAndRenderFearGreed, 5 * 60000);
@@ -1322,9 +1321,7 @@ async function submitOrder() {
     const o = res.order;
     const priceStr = o.type === 'market' ? 'market' : formatPrice(o.limit_price || o.price);
     showOrderMsg(`✓ ${side.toUpperCase()} ${o.qty || qty} ${o.symbol || symbol} @ ${priceStr}`, 'success');
-    if (res.portfolio) state.portfolio = res.portfolio;
-    // Refresh portfolio after short delay (Alpaca orders may not be filled instantly)
-    setTimeout(loadPortfolio, 800);
+    if (res.portfolio) { state.portfolio = res.portfolio; renderPortfolio(); }
     $('order-qty').value = '';
     updateOrderEstimate();
   }
