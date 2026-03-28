@@ -58,24 +58,64 @@ db.exec(`
   );
 `);
 
-// ── DB Helpers ────────────────────────────────────────────────────────────────
+// ── Prepared Statements ──────────────────────────────────────────────────────
+const stmts = {
+  getUserByUsername: db.prepare('SELECT * FROM users WHERE username = ?'),
+  insertUser: db.prepare('INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)'),
+  insertPortfolio: db.prepare('INSERT INTO portfolios (user_id) VALUES (?)'),
+  loadPortfolio: db.prepare('SELECT * FROM portfolios WHERE user_id = ?'),
+  upsertPortfolio: db.prepare(`
+    INSERT INTO portfolios (user_id, cash, starting_balance, positions, orders, resets)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET
+      cash = excluded.cash, starting_balance = excluded.starting_balance,
+      positions = excluded.positions, orders = excluded.orders, resets = excluded.resets
+  `),
+  getProfile: db.prepare(`
+    SELECT u.username, u.created_at, p.cash, p.starting_balance, p.positions, p.orders
+    FROM users u JOIN portfolios p ON p.user_id = u.id
+    WHERE u.username = ? COLLATE NOCASE
+  `),
+  getAllLeaderboard: db.prepare(`
+    SELECT u.username, p.cash, p.starting_balance, p.positions, p.orders, p.resets
+    FROM users u JOIN portfolios p ON p.user_id = u.id
+  `),
+};
+
 function getUserByUsername(username) {
-  return db.prepare('SELECT * FROM users WHERE username = ?').get(username);
+  return stmts.getUserByUsername.get(username);
 }
 
 function createUser(id, username, passwordHash) {
-  db.prepare('INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)')
-    .run(id, username, passwordHash, new Date().toISOString());
-  // Create a fresh portfolio row for this user
-  db.prepare('INSERT INTO portfolios (user_id) VALUES (?)').run(id);
+  stmts.insertUser.run(id, username, passwordHash, new Date().toISOString());
+  stmts.insertPortfolio.run(id);
 }
 
 function defaultPortfolio() {
   return { cash: 100000, positions: {}, orders: [], startingBalance: 100000, resets: 0 };
 }
 
+function calcPortfolioStats(cash, positions, orders, start, prices = {}) {
+  const posValue = Object.entries(positions).reduce((sum, [sym, pos]) => {
+    return sum + pos.qty * (prices[sym] || pos.avgCost);
+  }, 0);
+  const totalValue = cash + posValue;
+  const totalReturn = totalValue - start;
+  const returnPct = +(totalReturn / start * 100).toFixed(2);
+  const sells = orders.filter(o => o.side === 'sell' && o.realizedPnl != null);
+  const wins = sells.filter(o => o.realizedPnl > 0);
+  return {
+    totalValue: +totalValue.toFixed(2),
+    totalReturn: +totalReturn.toFixed(2),
+    returnPct,
+    totalTrades: orders.length,
+    winRate: sells.length ? +(wins.length / sells.length * 100).toFixed(0) : null,
+    realizedPnl: +sells.reduce((s, o) => s + o.realizedPnl, 0).toFixed(2),
+  };
+}
+
 function loadUserPortfolio(userId) {
-  const row = db.prepare('SELECT * FROM portfolios WHERE user_id = ?').get(userId);
+  const row = stmts.loadPortfolio.get(userId);
   if (!row) return defaultPortfolio();
   return {
     cash:            row.cash,
@@ -87,16 +127,7 @@ function loadUserPortfolio(userId) {
 }
 
 function saveUserPortfolio(userId, portfolio) {
-  db.prepare(`
-    INSERT INTO portfolios (user_id, cash, starting_balance, positions, orders, resets)
-    VALUES (?, ?, ?, ?, ?, ?)
-    ON CONFLICT(user_id) DO UPDATE SET
-      cash             = excluded.cash,
-      starting_balance = excluded.starting_balance,
-      positions        = excluded.positions,
-      orders           = excluded.orders,
-      resets           = excluded.resets
-  `).run(
+  stmts.upsertPortfolio.run(
     userId,
     portfolio.cash,
     portfolio.startingBalance ?? 100000,
@@ -246,41 +277,29 @@ async function fetchFinnhubCategory(category) {
   return r.data || [];
 }
 
+const DIRECT_CATEGORIES = { forex: 'forex', crypto: 'crypto', merger: 'merger' };
+
 app.get('/api/news/market', async (req, res) => {
   const { tab = 'market' } = req.query;
   if (!FINNHUB_KEY) return res.json(mockNews());
   try {
-    let articles = [];
+    let articles;
 
     if (tab === 'all') {
-      const [general, forex, crypto, merger] = await Promise.all([
-        fetchFinnhubCategory('general'),
-        fetchFinnhubCategory('forex'),
-        fetchFinnhubCategory('crypto'),
-        fetchFinnhubCategory('merger'),
-      ]);
-      articles = [...general, ...forex, ...crypto, ...merger]
-        .sort((a, b) => b.datetime - a.datetime);
-
-    } else if (tab === 'forex') {
-      articles = await fetchFinnhubCategory('forex');
-
-    } else if (tab === 'crypto') {
-      articles = await fetchFinnhubCategory('crypto');
-
-    } else if (tab === 'merger') {
-      articles = await fetchFinnhubCategory('merger');
-
-    } else if (tab === 'geopolitical' || tab === 'energy') {
+      const results = await Promise.all(
+        ['general', 'forex', 'crypto', 'merger'].map(fetchFinnhubCategory)
+      );
+      articles = results.flat().sort((a, b) => b.datetime - a.datetime);
+    } else if (DIRECT_CATEGORIES[tab]) {
+      articles = await fetchFinnhubCategory(DIRECT_CATEGORIES[tab]);
+    } else if (NEWS_FILTERS[tab]) {
       const general = await fetchFinnhubCategory('general');
       const keywords = NEWS_FILTERS[tab];
       articles = general.filter(a => {
         const text = ((a.headline || '') + ' ' + (a.summary || '')).toLowerCase();
         return keywords.some(kw => text.includes(kw));
       });
-
     } else {
-      // 'market' default
       articles = await fetchFinnhubCategory('general');
     }
 
@@ -446,47 +465,27 @@ app.get('/user/:username', (req, res) => {
 
 // ── Public Profile ────────────────────────────────────────────────────────────
 app.get('/api/profile/:username', async (req, res) => {
-  const row = db.prepare(`
-    SELECT u.username, u.created_at, p.cash, p.starting_balance, p.positions, p.orders
-    FROM users u
-    JOIN portfolios p ON p.user_id = u.id
-    WHERE u.username = ? COLLATE NOCASE
-  `).get(req.params.username);
+  const row = stmts.getProfile.get(req.params.username);
 
   if (!row) return res.status(404).json({ error: 'User not found' });
 
-  const positions  = JSON.parse(row.positions);
-  const orders     = JSON.parse(row.orders);
+  const positions = JSON.parse(row.positions);
+  const orders = JSON.parse(row.orders);
+  const start = row.starting_balance || 100000;
 
-  // Fetch live prices for positions
-  const symbols = Object.keys(positions);
   const prices = {};
-  await Promise.all(symbols.map(async sym => {
+  await Promise.all(Object.keys(positions).map(async sym => {
     prices[sym] = await getCachedQuote(sym);
   }));
 
-  const posValue   = Object.entries(positions).reduce((sum, [sym, p]) => {
-    const livePrice = prices[sym] || p.avgCost;
-    return sum + p.qty * livePrice;
-  }, 0);
-  const totalValue = row.cash + posValue;
-  const start      = row.starting_balance || 100000;
-  const returnPct  = +((totalValue - start) / start * 100).toFixed(2);
-  const sells      = orders.filter(o => o.side === 'sell' && o.realizedPnl != null);
-  const wins       = sells.filter(o => o.realizedPnl > 0);
-  const realizedPnl = +sells.reduce((s, o) => s + o.realizedPnl, 0).toFixed(2);
+  const stats = calcPortfolioStats(row.cash, positions, orders, start, prices);
 
   res.json({
-    username:    row.username,
+    username: row.username,
     memberSince: row.created_at,
-    totalValue:  +totalValue.toFixed(2),
-    cash:        +row.cash.toFixed(2),
-    returnPct,
-    totalReturn: +(totalValue - start).toFixed(2),
-    realizedPnl,
-    totalTrades: orders.length,
-    winRate:     sells.length ? +(wins.length / sells.length * 100).toFixed(0) : null,
-    positions:   Object.entries(positions).map(([sym, p]) => ({
+    cash: +row.cash.toFixed(2),
+    ...stats,
+    positions: Object.entries(positions).map(([sym, p]) => ({
       symbol: sym, qty: p.qty, avgCost: +p.avgCost.toFixed(2),
       marketValue: +((prices[sym] || p.avgCost) * p.qty).toFixed(2),
     })),
@@ -514,11 +513,7 @@ async function getCachedQuote(symbol) {
 }
 
 app.get('/api/leaderboard', async (req, res) => {
-  const rows = db.prepare(`
-    SELECT u.username, p.cash, p.starting_balance, p.positions, p.orders, p.resets
-    FROM users u
-    JOIN portfolios p ON p.user_id = u.id
-  `).all();
+  const rows = stmts.getAllLeaderboard.all();
 
   // Collect all unique symbols across all portfolios
   const allSymbols = new Set();
@@ -535,26 +530,9 @@ app.get('/api/leaderboard', async (req, res) => {
   }));
 
   const entries = parsed.map(row => {
-    const { positions, orders } = row;
-    const posValue = Object.entries(positions).reduce((sum, [sym, pos]) => {
-      const livePrice = prices[sym] || pos.avgCost;
-      return sum + pos.qty * livePrice;
-    }, 0);
-    const totalValue = row.cash + posValue;
-    const start      = row.starting_balance || 100000;
-    const totalReturn = totalValue - start;
-    const returnPct   = +(totalReturn / start * 100).toFixed(2);
-    const sells = orders.filter(o => o.side === 'sell' && o.realizedPnl != null);
-    const wins  = sells.filter(o => o.realizedPnl > 0);
-    return {
-      username:    row.username,
-      totalValue:  +totalValue.toFixed(2),
-      totalReturn: +totalReturn.toFixed(2),
-      returnPct,
-      totalTrades: orders.length,
-      winRate: sells.length ? +(wins.length / sells.length * 100).toFixed(0) : null,
-      resets: row.resets || 0,
-    };
+    const start = row.starting_balance || 100000;
+    const stats = calcPortfolioStats(row.cash, row.positions, row.orders, start, prices);
+    return { username: row.username, ...stats, resets: row.resets || 0 };
   }).sort((a, b) => b.returnPct - a.returnPct);
 
   res.json(entries);
