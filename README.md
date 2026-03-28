@@ -1,10 +1,10 @@
-# 📈 TradeDesk
+# TradeDesk
 
 A live market terminal for paper trading. Practice reading charts, reacting to news, and executing trades — with $100,000 in virtual money and zero risk.
 
 Built as a learning tool for anyone who wants to develop a trading intuition before putting real money on the line.
 
-> **Live demo:** *(coming soon — deployment in progress)*
+> **Live:** [papertradedesk.duckdns.org](https://papertradedesk.duckdns.org)
 
 ---
 
@@ -28,7 +28,7 @@ Built as a learning tool for anyone who wants to develop a trading intuition bef
 - Market and limit orders
 - Real-time P&L on open positions
 - Full order history with realized P&L tracking
-- Portfolio reset anytime
+- Portfolio reset with tracked reset count
 
 **Tools**
 - **Position Sizer** — enter price, stop loss, and risk % to calculate exact share count and dollar risk
@@ -38,7 +38,7 @@ Built as a learning tool for anyone who wants to develop a trading intuition bef
 
 **Platform**
 - User accounts — register/login, each user has their own isolated portfolio
-- **Leaderboard** — ranked competition showing return %, win rate, and trade count across all users
+- **Leaderboard** — ranked competition with live portfolio values, return %, win rate, trade count, and reset tracking
 - Watchlist with live quote updates
 - Recommended stocks by sector (Indices · Tech · Energy · Finance)
 - Market hours for NYSE, LSE, TSE, SSE
@@ -57,7 +57,7 @@ Built as a learning tool for anyone who wants to develop a trading intuition bef
 | Market data | Finnhub.io (quotes, news, search, earnings) |
 | Historical data | Yahoo Finance (candles, VIX — no key needed) |
 | Auth | bcryptjs + express-session |
-| Storage | JSON files (per-user portfolios) |
+| Storage | SQLite (better-sqlite3) |
 
 ---
 
@@ -118,7 +118,7 @@ tradedesk/
 │   ├── leaderboard.html
 │   ├── leaderboard.css
 │   └── leaderboard.js
-├── data/              # User accounts + portfolios (gitignored)
+├── data/              # SQLite databases (gitignored)
 ├── .env.example
 └── package.json
 ```
@@ -127,9 +127,9 @@ tradedesk/
 
 ## Deployment
 
-Deployed on DigitalOcean with Cloudflare for DNS and SSL. See the setup steps:
+Deployed on DigitalOcean with Nginx and Let's Encrypt SSL.
 
-1. Create a $6/month Ubuntu droplet on [DigitalOcean](https://digitalocean.com)
+1. Create an Ubuntu droplet on [DigitalOcean](https://digitalocean.com)
 2. SSH in and run:
 ```bash
 apt update && apt upgrade -y
@@ -141,7 +141,8 @@ nano .env  # add your keys
 pm2 start server.js --name tradedesk && pm2 startup && pm2 save
 ```
 3. Configure Nginx to proxy port 80 → 3000 (with WebSocket upgrade headers)
-4. Point your domain at the droplet IP via Cloudflare — free SSL included
+4. Set up SSL with `certbot --nginx`
+5. Enable firewall: `ufw allow 22 && ufw allow 80 && ufw allow 443 && ufw enable`
 
 ---
 
