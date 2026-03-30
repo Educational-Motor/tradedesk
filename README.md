@@ -1,6 +1,6 @@
 # TradeDesk
 
-A live market terminal for paper trading. Practice reading charts, reacting to news, and executing trades — with $20,000 in virtual money and real risk management.
+A live market terminal for paper trading. Practice reading charts, reacting to news, and executing trades with $20,000 in virtual money and real risk management.
 
 Built as a learning tool for anyone who wants to develop a trading intuition before putting real money on the line.
 
