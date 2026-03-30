@@ -101,7 +101,7 @@ db.exec(`
 const stmts = {
   getUserByUsername: db.prepare('SELECT * FROM users WHERE username = ?'),
   insertUser: db.prepare('INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)'),
-  insertPortfolio: db.prepare('INSERT INTO portfolios (user_id) VALUES (?)'),
+  insertPortfolio: db.prepare('INSERT INTO portfolios (user_id, cash, starting_balance) VALUES (?, 20000, 20000)'),
   loadPortfolio: db.prepare('SELECT * FROM portfolios WHERE user_id = ?'),
   upsertPortfolio: db.prepare(`
     INSERT INTO portfolios (user_id, cash, starting_balance, positions, orders, resets)
@@ -582,14 +582,14 @@ async function getCachedQuote(symbol) {
   const cached = quoteCache[symbol];
   if (cached && Date.now() - cached.time < QUOTE_CACHE_MS) return cached.price;
   try {
-    if (!FINNHUB_KEY) return null;
+    if (!FINNHUB_KEY) return cached?.price || null;
     const r = await axios.get('https://finnhub.io/api/v1/quote', {
       params: { symbol, token: FINNHUB_KEY }, timeout: 5000
     });
     const price = r.data.c > 0 ? r.data.c : null;
     if (price) quoteCache[symbol] = { price, time: Date.now() };
-    return price;
-  } catch (_) { return null; }
+    return price || cached?.price || null;
+  } catch (_) { return cached?.price || null; }
 }
 
 app.get('/api/leaderboard', async (req, res) => {
