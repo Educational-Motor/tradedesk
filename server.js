@@ -41,6 +41,20 @@ db.pragma('foreign_keys = ON');
 // Migration: add resets column if missing
 try { db.exec('ALTER TABLE portfolios ADD COLUMN resets INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
 
+// Migration: reset all portfolios to $20k (from $100k) without counting as a reset
+try {
+  const needsMigration = db.prepare(
+    "SELECT 1 FROM portfolios WHERE starting_balance > 20000 LIMIT 1"
+  ).get();
+  if (needsMigration) {
+    db.exec(`
+      UPDATE portfolios
+      SET cash = 20000, starting_balance = 20000, positions = '{}', orders = '[]'
+    `);
+    console.log('✅ Migrated all portfolios to $20,000 starting balance (resets unchanged)');
+  }
+} catch (_) {}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id           TEXT PRIMARY KEY,
@@ -50,8 +64,8 @@ db.exec(`
   );
   CREATE TABLE IF NOT EXISTS portfolios (
     user_id          TEXT PRIMARY KEY REFERENCES users(id),
-    cash             REAL NOT NULL DEFAULT 100000,
-    starting_balance REAL NOT NULL DEFAULT 100000,
+    cash             REAL NOT NULL DEFAULT 20000,
+    starting_balance REAL NOT NULL DEFAULT 20000,
     positions        TEXT NOT NULL DEFAULT '{}',
     orders           TEXT NOT NULL DEFAULT '[]',
     resets           INTEGER NOT NULL DEFAULT 0
@@ -92,7 +106,7 @@ function createUser(id, username, passwordHash) {
 }
 
 function defaultPortfolio() {
-  return { cash: 100000, positions: {}, orders: [], startingBalance: 100000, resets: 0 };
+  return { cash: 20000, positions: {}, orders: [], startingBalance: 20000, resets: 0 };
 }
 
 function calcPortfolioStats(cash, positions, orders, start, prices = {}) {
@@ -130,7 +144,7 @@ function saveUserPortfolio(userId, portfolio) {
   stmts.upsertPortfolio.run(
     userId,
     portfolio.cash,
-    portfolio.startingBalance ?? 100000,
+    portfolio.startingBalance ?? 20000,
     JSON.stringify(portfolio.positions),
     JSON.stringify(portfolio.orders),
     portfolio.resets ?? 0,
@@ -471,7 +485,7 @@ app.get('/api/profile/:username', async (req, res) => {
 
   const positions = JSON.parse(row.positions);
   const orders = JSON.parse(row.orders);
-  const start = row.starting_balance || 100000;
+  const start = row.starting_balance || 20000;
 
   const prices = {};
   await Promise.all(Object.keys(positions).map(async sym => {
@@ -530,7 +544,7 @@ app.get('/api/leaderboard', async (req, res) => {
   }));
 
   const entries = parsed.map(row => {
-    const start = row.starting_balance || 100000;
+    const start = row.starting_balance || 20000;
     const stats = calcPortfolioStats(row.cash, row.positions, row.orders, start, prices);
     return { username: row.username, ...stats, resets: row.resets || 0 };
   }).sort((a, b) => b.returnPct - a.returnPct);

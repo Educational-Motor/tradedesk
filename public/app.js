@@ -372,10 +372,16 @@ async function refreshAllQuotes() {
 // ── Chart ─────────────────────────────────────────────────────────────────────
 // ── Indicator Math ────────────────────────────────────────────────────────────
 function calcSMA(values, period) {
-  return values.map((_, i) => {
-    if (i < period - 1) return null;
-    return values.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0) / period;
-  });
+  const result = new Array(values.length).fill(null);
+  if (values.length < period) return result;
+  let sum = 0;
+  for (let i = 0; i < period; i++) sum += values[i];
+  result[period - 1] = sum / period;
+  for (let i = period; i < values.length; i++) {
+    sum += values[i] - values[i - period];
+    result[i] = sum / period;
+  }
+  return result;
 }
 
 function calcEMA(values, period) {
@@ -901,12 +907,15 @@ function renderPortfolio() {
   }
 }
 
-async function refreshPositionPrices() {
+// Debounced portfolio re-render for live price updates — avoids thrashing DOM on rapid WS ticks
+let _posRenderTimer = null;
+function refreshPositionPrices() {
   if (!state.portfolio) return;
-  const positions = Object.keys(state.portfolio.positions || {});
-  if (!positions.length) return;
-  await Promise.all(positions.map(sym => fetchQuote(sym)));
-  renderPortfolio();
+  if (_posRenderTimer) return; // already scheduled
+  _posRenderTimer = setTimeout(() => {
+    _posRenderTimer = null;
+    renderPortfolio();
+  }, 250);
 }
 
 // ── Portfolio Stats ───────────────────────────────────────────────────────────
