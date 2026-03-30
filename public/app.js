@@ -162,6 +162,15 @@ async function init() {
   fetchAndRenderFearGreed();
   setInterval(fetchAndRenderFearGreed, 5 * 60000);
 
+  // Prefetch leaderboard in background so it's instant when navigated to
+  function prefetchLeaderboard() {
+    fetch('/api/leaderboard').then(r => r.json()).then(data => {
+      localStorage.setItem('lb_cache', JSON.stringify({ data, ts: Date.now() }));
+    }).catch(() => {});
+  }
+  prefetchLeaderboard();
+  setInterval(prefetchLeaderboard, 30000);
+
   renderAlerts();
   setupEventListeners();
   initDragHandles();

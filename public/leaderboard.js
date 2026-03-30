@@ -3,6 +3,8 @@ let countdownInterval = null;
 
 async function loadLeaderboard() {
   const data = await fetch('/api/leaderboard').then(r => r.json()).catch(() => []);
+  // Update cache so main app and future page loads have fresh data
+  localStorage.setItem('lb_cache', JSON.stringify({ data, ts: Date.now() }));
   render(data);
   resetCountdown();
 }
@@ -102,4 +104,11 @@ function esc(str) {
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// Instantly render cached data from main app's background prefetch, then refresh
+const cached = (() => {
+  try { return JSON.parse(localStorage.getItem('lb_cache')); } catch { return null; }
+})();
+if (cached && cached.data && cached.data.length) {
+  render(cached.data);
+}
 loadLeaderboard();
