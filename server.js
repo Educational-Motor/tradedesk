@@ -70,6 +70,31 @@ db.exec(`
     orders           TEXT NOT NULL DEFAULT '[]',
     resets           INTEGER NOT NULL DEFAULT 0
   );
+  CREATE TABLE IF NOT EXISTS pending_orders (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      TEXT NOT NULL REFERENCES users(id),
+    symbol       TEXT NOT NULL,
+    side         TEXT NOT NULL CHECK(side IN ('buy','sell')),
+    qty          REAL NOT NULL,
+    limit_price  REAL NOT NULL,
+    status       TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','filled','cancelled')),
+    filled_price REAL,
+    filled_at    TEXT,
+    seen         INTEGER NOT NULL DEFAULT 0,
+    created_at   TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS alerts (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      TEXT NOT NULL REFERENCES users(id),
+    symbol       TEXT NOT NULL,
+    direction    TEXT NOT NULL CHECK(direction IN ('above','below')),
+    target_price REAL NOT NULL,
+    triggered    INTEGER NOT NULL DEFAULT 0,
+    triggered_at TEXT,
+    trigger_price REAL,
+    seen         INTEGER NOT NULL DEFAULT 0,
+    created_at   TEXT NOT NULL
+  );
 `);
 
 // ── Prepared Statements ──────────────────────────────────────────────────────
@@ -94,6 +119,22 @@ const stmts = {
     SELECT u.username, p.cash, p.starting_balance, p.positions, p.orders, p.resets
     FROM users u JOIN portfolios p ON p.user_id = u.id
   `),
+  // Pending orders
+  insertPending: db.prepare('INSERT INTO pending_orders (user_id, symbol, side, qty, limit_price, created_at) VALUES (?, ?, ?, ?, ?, ?)'),
+  getPending: db.prepare('SELECT * FROM pending_orders WHERE user_id = ? AND status = ? ORDER BY created_at DESC'),
+  getActivePending: db.prepare('SELECT * FROM pending_orders WHERE status = ?'),
+  cancelPending: db.prepare('UPDATE pending_orders SET status = ? WHERE id = ? AND user_id = ? AND status = ?'),
+  fillPending: db.prepare('UPDATE pending_orders SET status = ?, filled_price = ?, filled_at = ? WHERE id = ?'),
+  getFilledUnseen: db.prepare("SELECT * FROM pending_orders WHERE user_id = ? AND status = 'filled' AND seen = 0"),
+  markPendingSeen: db.prepare("UPDATE pending_orders SET seen = 1 WHERE user_id = ? AND status = 'filled' AND seen = 0"),
+  // Alerts
+  insertAlert: db.prepare('INSERT INTO alerts (user_id, symbol, direction, target_price, created_at) VALUES (?, ?, ?, ?, ?)'),
+  getAlerts: db.prepare('SELECT * FROM alerts WHERE user_id = ? ORDER BY created_at DESC'),
+  deleteAlert: db.prepare('DELETE FROM alerts WHERE id = ? AND user_id = ?'),
+  getActiveAlerts: db.prepare('SELECT * FROM alerts WHERE triggered = 0'),
+  triggerAlert: db.prepare('UPDATE alerts SET triggered = 1, triggered_at = ?, trigger_price = ? WHERE id = ?'),
+  getUnseen: db.prepare('SELECT * FROM alerts WHERE user_id = ? AND triggered = 1 AND seen = 0'),
+  markSeen: db.prepare('UPDATE alerts SET seen = 1 WHERE user_id = ? AND triggered = 1 AND seen = 0'),
 };
 
 function getUserByUsername(username) {
@@ -407,7 +448,7 @@ app.post('/api/trade', requireAuth, async (req, res) => {
   }
   const portfolio = loadUserPortfolio(req.session.userId);
 
-  let execPrice;
+  let marketPrice;
   try {
     if (FINNHUB_KEY) {
       const r = await axios.get('https://finnhub.io/api/v1/quote', {
@@ -415,20 +456,45 @@ app.post('/api/trade', requireAuth, async (req, res) => {
         timeout: 8000
       });
       const q = r.data;
-      const marketPrice = (q.c > 0 ? q.c : null) || (q.pc > 0 ? q.pc : null);
-      if (orderType === 'limit') {
-        execPrice = parseFloat(limitPrice);
-      } else if (marketPrice) {
-        execPrice = marketPrice;
-      }
+      marketPrice = (q.c > 0 ? q.c : null) || (q.pc > 0 ? q.pc : null);
     } else {
-      execPrice = orderType === 'limit' ? parseFloat(limitPrice) : mockQuote(symbol).c;
+      marketPrice = mockQuote(symbol).c;
     }
   } catch (_) {
     return res.status(500).json({ error: 'Could not get current price — try again in a moment' });
   }
 
-  if (!execPrice || execPrice <= 0) return res.status(400).json({ error: 'Price unavailable for this symbol' });
+  if (!marketPrice || marketPrice <= 0) return res.status(400).json({ error: 'Price unavailable for this symbol' });
+
+  // Limit orders: check if condition is met now, otherwise store as pending
+  if (orderType === 'limit') {
+    const limit = parseFloat(limitPrice);
+    if (!limit || limit <= 0) return res.status(400).json({ error: 'Invalid limit price' });
+    const conditionMet = (side === 'buy' && marketPrice <= limit) ||
+                         (side === 'sell' && marketPrice >= limit);
+    if (!conditionMet) {
+      // Validate the user can afford it before queuing
+      const shares = parseFloat(qty);
+      if (side === 'buy' && portfolio.cash < limit * shares) {
+        return res.status(400).json({ error: `Insufficient funds. Need $${(limit * shares).toFixed(2)}, have $${portfolio.cash.toFixed(2)}` });
+      }
+      if (side === 'sell') {
+        const pos = portfolio.positions[symbol.toUpperCase()];
+        if (!pos || pos.qty < shares) {
+          return res.status(400).json({ error: `Insufficient shares. Have ${pos?.qty ?? 0}, need ${shares}` });
+        }
+      }
+      stmts.insertPending.run(req.session.userId, symbol.toUpperCase(), side, shares, limit, new Date().toISOString());
+      return res.json({
+        success: true,
+        pending: true,
+        message: `Limit order queued: ${side.toUpperCase()} ${shares} ${symbol.toUpperCase()} @ $${limit.toFixed(2)}. Will fill when market price ${side === 'buy' ? 'drops to' : 'rises to'} $${limit.toFixed(2)}.`
+      });
+    }
+  }
+
+  // Execute at the real market price
+  const execPrice = marketPrice;
 
   const shares = parseFloat(qty);
   const totalCost = execPrice * shares;
@@ -551,6 +617,140 @@ app.get('/api/leaderboard', async (req, res) => {
 
   res.json(entries);
 });
+
+// ── Pending Orders API ──────────────────────────────────────────────────
+app.get('/api/orders/pending', requireAuth, (req, res) => {
+  res.json(stmts.getPending.all(req.session.userId, 'pending'));
+});
+
+app.delete('/api/orders/pending/:id', requireAuth, (req, res) => {
+  stmts.cancelPending.run('cancelled', req.params.id, req.session.userId, 'pending');
+  res.json({ success: true });
+});
+
+// Return filled orders the user hasn't seen yet, then mark them seen
+app.get('/api/orders/filled', requireAuth, (req, res) => {
+  const unseen = stmts.getFilledUnseen.all(req.session.userId);
+  stmts.markPendingSeen.run(req.session.userId);
+  res.json(unseen);
+});
+
+// ── Price Alerts API ────────────────────────────────────────────────────
+app.get('/api/alerts', requireAuth, (req, res) => {
+  const alerts = stmts.getAlerts.all(req.session.userId);
+  res.json(alerts);
+});
+
+app.post('/api/alerts', requireAuth, (req, res) => {
+  const { symbol, direction, targetPrice } = req.body;
+  if (!symbol || !direction || !targetPrice || targetPrice <= 0) {
+    return res.status(400).json({ error: 'Invalid alert parameters' });
+  }
+  if (!['above', 'below'].includes(direction)) {
+    return res.status(400).json({ error: 'Direction must be "above" or "below"' });
+  }
+  stmts.insertAlert.run(req.session.userId, symbol.toUpperCase(), direction, parseFloat(targetPrice), new Date().toISOString());
+  res.json({ success: true });
+});
+
+app.delete('/api/alerts/:id', requireAuth, (req, res) => {
+  stmts.deleteAlert.run(req.params.id, req.session.userId);
+  res.json({ success: true });
+});
+
+// Return triggered-but-unseen alerts, then mark them seen
+app.get('/api/alerts/triggered', requireAuth, (req, res) => {
+  const unseen = stmts.getUnseen.all(req.session.userId);
+  stmts.markSeen.run(req.session.userId);
+  res.json(unseen);
+});
+
+// ── Server-side Alert & Pending Order Checker ───────────────────────────
+async function checkServerAlertsAndOrders() {
+  const activeAlerts = stmts.getActiveAlerts.all();
+  const pendingOrders = stmts.getActivePending.all('pending');
+  if (!activeAlerts.length && !pendingOrders.length) return;
+
+  // Collect all symbols we need prices for
+  const allSymbols = new Set();
+  for (const a of activeAlerts) allSymbols.add(a.symbol);
+  for (const o of pendingOrders) allSymbols.add(o.symbol);
+
+  // Fetch prices for all symbols
+  const prices = {};
+  for (const symbol of allSymbols) {
+    try {
+      if (FINNHUB_KEY) {
+        const r = await axios.get('https://finnhub.io/api/v1/quote', {
+          params: { symbol, token: FINNHUB_KEY }, timeout: 5000
+        });
+        prices[symbol] = r.data.c > 0 ? r.data.c : null;
+      } else {
+        prices[symbol] = mockQuote(symbol).c;
+      }
+    } catch (_) { /* skip */ }
+  }
+
+  const now = new Date().toISOString();
+
+  // Check alerts
+  for (const a of activeAlerts) {
+    const price = prices[a.symbol];
+    if (!price) continue;
+    const hit = (a.direction === 'above' && price >= a.target_price) ||
+                (a.direction === 'below' && price <= a.target_price);
+    if (hit) stmts.triggerAlert.run(now, price, a.id);
+  }
+
+  // Fill pending orders
+  for (const o of pendingOrders) {
+    const price = prices[o.symbol];
+    if (!price) continue;
+    const conditionMet = (o.side === 'buy' && price <= o.limit_price) ||
+                         (o.side === 'sell' && price >= o.limit_price);
+    if (!conditionMet) continue;
+
+    // Execute the trade against the user's portfolio
+    const portfolio = loadUserPortfolio(o.user_id);
+    const totalCost = price * o.qty;
+    let realizedPnl = null;
+
+    if (o.side === 'buy') {
+      if (portfolio.cash < totalCost) continue; // can't afford anymore, skip
+      portfolio.cash -= totalCost;
+      if (!portfolio.positions[o.symbol]) portfolio.positions[o.symbol] = { qty: 0, avgCost: 0 };
+      const pos = portfolio.positions[o.symbol];
+      const newQty = pos.qty + o.qty;
+      pos.avgCost = ((pos.qty * pos.avgCost) + totalCost) / newQty;
+      pos.qty = newQty;
+    } else {
+      const pos = portfolio.positions[o.symbol];
+      if (!pos || pos.qty < o.qty) continue; // not enough shares anymore, skip
+      realizedPnl = +((price - pos.avgCost) * o.qty).toFixed(2);
+      portfolio.cash += totalCost;
+      pos.qty -= o.qty;
+      if (pos.qty <= 0) delete portfolio.positions[o.symbol];
+    }
+
+    // Record as filled order in portfolio history
+    const order = {
+      id: Date.now(), symbol: o.symbol, side: o.side, qty: o.qty, price,
+      total: totalCost, type: 'limit', limitPrice: o.limit_price,
+      timestamp: now, status: 'filled',
+      ...(realizedPnl !== null ? { realizedPnl } : {})
+    };
+    portfolio.orders.unshift(order);
+    portfolio.orders = portfolio.orders.slice(0, 100);
+    saveUserPortfolio(o.user_id, portfolio);
+
+    // Mark the pending order as filled
+    stmts.fillPending.run('filled', price, now, o.id);
+  }
+}
+
+// Check alerts & pending orders every 60 seconds (and once on startup)
+setTimeout(checkServerAlertsAndOrders, 5000);
+setInterval(checkServerAlertsAndOrders, 60000);
 
 // ── Fear & Greed Index ───────────────────────────────────────────────────────
 app.get('/api/fear-greed', async (req, res) => {

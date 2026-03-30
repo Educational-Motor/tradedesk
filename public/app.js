@@ -19,8 +19,9 @@ const state = {
   popupQueue: [],
   popupShowing: false,
   maEnabled: JSON.parse(localStorage.getItem('maEnabled') || '{"ema20":false,"sma50":false,"sma200":false}'),
-  alerts: JSON.parse(localStorage.getItem('alerts') || '[]'),
+  alerts: [],
   alertTriggered: new Set(),
+  pendingOrders: [],
 };
 
 const DEFAULT_WATCHLIST = [
@@ -137,10 +138,22 @@ async function init() {
     refreshAllQuotes(),
     loadChart(state.currentSymbol),
     loadNews(),
+    loadAlerts(),
+    loadPendingOrders(),
   ]);
   // Re-render portfolio now that live quotes are available
   renderPortfolio();
   renderRecommended();
+
+  // Show alerts triggered and orders filled while user was away
+  await checkTriggeredAlerts();
+  await checkFilledOrders();
+
+  // Poll for filled pending orders every 60s
+  setInterval(async () => {
+    await checkFilledOrders();
+    await loadPendingOrders();
+  }, 60000);
 
   setInterval(refreshAllQuotes, 15000);
   setInterval(() => renderRecommended(), 15000);
@@ -1177,20 +1190,28 @@ function saveWatchlist() {
 }
 
 // ── Price Alerts ──────────────────────────────────────────────────────────────
-function saveAlerts() { localStorage.setItem('alerts', JSON.stringify(state.alerts)); }
-
-function addAlert(symbol, direction, targetPrice) {
-  const sym = symbol.toUpperCase().trim();
-  if (!sym || !targetPrice || targetPrice <= 0) return;
-  state.alerts.push({ id: Date.now(), symbol: sym, direction, targetPrice: parseFloat(targetPrice) });
-  saveAlerts();
+async function loadAlerts() {
+  const alerts = await fetch('/api/alerts').then(r => r.json()).catch(() => []);
+  state.alerts = alerts;
+  state.alertTriggered = new Set(alerts.filter(a => a.triggered).map(a => a.id));
   renderAlerts();
 }
 
-function removeAlert(id) {
+async function addAlert(symbol, direction, targetPrice) {
+  const sym = symbol.toUpperCase().trim();
+  if (!sym || !targetPrice || targetPrice <= 0) return;
+  await fetch('/api/alerts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ symbol: sym, direction, targetPrice: parseFloat(targetPrice) })
+  });
+  await loadAlerts();
+}
+
+async function removeAlert(id) {
+  await fetch(`/api/alerts/${id}`, { method: 'DELETE' });
   state.alerts = state.alerts.filter(a => a.id !== id);
   state.alertTriggered.delete(id);
-  saveAlerts();
   renderAlerts();
 }
 
@@ -1201,10 +1222,11 @@ function renderAlerts() {
     return;
   }
   list.innerHTML = state.alerts.map(a => `
-    <div class="alert-item ${state.alertTriggered.has(a.id) ? 'triggered' : ''}">
+    <div class="alert-item ${a.triggered ? 'triggered' : ''}">
       <span class="alert-sym">${a.symbol}</span>
       <span class="alert-dir ${a.direction}">${a.direction === 'above' ? '↑' : '↓'}</span>
-      <span class="alert-tgt">${formatPrice(a.targetPrice)}</span>
+      <span class="alert-tgt">${formatPrice(a.target_price)}</span>
+      ${a.triggered ? '<span style="color:var(--green);font-size:10px;">triggered</span>' : ''}
       <button class="alert-del" onclick="removeAlert(${a.id})" title="Remove">✕</button>
     </div>
   `).join('');
@@ -1212,17 +1234,18 @@ function renderAlerts() {
 
 function checkAlerts(symbol, price) {
   state.alerts.forEach(a => {
-    if (a.symbol !== symbol || state.alertTriggered.has(a.id)) return;
-    const hit = (a.direction === 'above' && price >= a.targetPrice) ||
-                (a.direction === 'below' && price <= a.targetPrice);
+    if (a.symbol !== symbol || a.triggered || state.alertTriggered.has(a.id)) return;
+    const hit = (a.direction === 'above' && price >= a.target_price) ||
+                (a.direction === 'below' && price <= a.target_price);
     if (!hit) return;
     state.alertTriggered.add(a.id);
+    a.triggered = 1;
     renderAlerts();
     // Re-use the news popup for alert notification
     const popup = $('news-popup');
     $('popup-source').textContent = '🔔 PRICE ALERT';
-    $('popup-headline').textContent = `${symbol} hit ${formatPrice(a.targetPrice)}`;
-    $('popup-summary').textContent = `Current price: ${formatPrice(price)} — Alert triggered ${a.direction} ${formatPrice(a.targetPrice)}`;
+    $('popup-headline').textContent = `${symbol} hit ${formatPrice(a.target_price)}`;
+    $('popup-summary').textContent = `Current price: ${formatPrice(price)} — Alert triggered ${a.direction} ${formatPrice(a.target_price)}`;
     $('popup-symbol').textContent = symbol;
     $('popup-buy').onclick = () => { $('order-symbol').value = symbol; activateSide('buy'); popup.classList.add('hidden'); };
     $('popup-sell').onclick = () => { $('order-symbol').value = symbol; activateSide('sell'); popup.classList.add('hidden'); };
@@ -1230,6 +1253,23 @@ function checkAlerts(symbol, price) {
     popup.style.borderLeftColor = a.direction === 'above' ? 'var(--green)' : 'var(--red)';
     setTimeout(() => { popup.classList.add('hidden'); popup.style.borderLeftColor = ''; }, 10000);
   });
+}
+
+async function checkTriggeredAlerts() {
+  const triggered = await fetch('/api/alerts/triggered').then(r => r.json()).catch(() => []);
+  for (const a of triggered) {
+    const popup = $('news-popup');
+    $('popup-source').textContent = '🔔 PRICE ALERT';
+    $('popup-headline').textContent = `${a.symbol} hit ${formatPrice(a.target_price)}`;
+    $('popup-summary').textContent = `Triggered at ${formatPrice(a.trigger_price)} (${a.direction} ${formatPrice(a.target_price)})`;
+    $('popup-symbol').textContent = a.symbol;
+    $('popup-buy').onclick = () => { $('order-symbol').value = a.symbol; activateSide('buy'); popup.classList.add('hidden'); };
+    $('popup-sell').onclick = () => { $('order-symbol').value = a.symbol; activateSide('sell'); popup.classList.add('hidden'); };
+    popup.classList.remove('hidden');
+    popup.style.borderLeftColor = a.direction === 'above' ? 'var(--green)' : 'var(--red)';
+    setTimeout(() => { popup.classList.add('hidden'); popup.style.borderLeftColor = ''; }, 10000);
+  }
+  if (triggered.length) await loadAlerts();
 }
 
 function removeFromWatchlist(e, symbol) {
@@ -1326,6 +1366,11 @@ async function submitOrder() {
 
   if (res.error) {
     showOrderMsg(res.error, 'error');
+  } else if (res.pending) {
+    showOrderMsg(res.message, 'success');
+    loadPendingOrders();
+    $('order-qty').value = '';
+    updateOrderEstimate();
   } else {
     const o = res.order;
     const priceStr = o.type === 'market' ? 'market' : formatPrice(o.limit_price || o.price);
@@ -1333,6 +1378,50 @@ async function submitOrder() {
     if (res.portfolio) { state.portfolio = res.portfolio; renderPortfolio(); }
     $('order-qty').value = '';
     updateOrderEstimate();
+  }
+}
+
+// ── Pending Orders ────────────────────────────────────────────────────────
+async function loadPendingOrders() {
+  const orders = await fetch('/api/orders/pending').then(r => r.json()).catch(() => []);
+  state.pendingOrders = orders;
+  renderPendingOrders();
+}
+
+async function cancelPendingOrder(id) {
+  await fetch(`/api/orders/pending/${id}`, { method: 'DELETE' });
+  await loadPendingOrders();
+}
+
+function renderPendingOrders() {
+  const container = $('pending-orders');
+  if (!container) return;
+  if (!state.pendingOrders || !state.pendingOrders.length) {
+    container.innerHTML = '';
+    container.classList.add('hidden');
+    return;
+  }
+  container.classList.remove('hidden');
+  container.innerHTML = '<div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;font-weight:600;">PENDING LIMIT ORDERS</div>' +
+    state.pendingOrders.map(o => `
+      <div class="pending-order-item" style="display:flex;align-items:center;gap:6px;font-size:11px;padding:4px 0;border-bottom:1px solid var(--border);">
+        <span class="${o.side === 'buy' ? 'text-green' : 'text-red'}" style="font-weight:600;text-transform:uppercase;">${o.side}</span>
+        <span style="font-weight:500;">${o.qty} ${o.symbol}</span>
+        <span style="color:var(--text-muted);">@ ${formatPrice(o.limit_price)}</span>
+        <button onclick="cancelPendingOrder(${o.id})" style="margin-left:auto;background:none;border:none;color:var(--red);cursor:pointer;font-size:11px;" title="Cancel order">✕</button>
+      </div>
+    `).join('');
+}
+
+async function checkFilledOrders() {
+  const filled = await fetch('/api/orders/filled').then(r => r.json()).catch(() => []);
+  for (const o of filled) {
+    showOrderMsg(`Limit order filled: ${o.side.toUpperCase()} ${o.qty} ${o.symbol} @ ${formatPrice(o.filled_price)}`, 'success');
+  }
+  if (filled.length) {
+    await loadPortfolio();
+    renderPortfolio();
+    await loadPendingOrders();
   }
 }
 
