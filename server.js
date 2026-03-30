@@ -448,22 +448,8 @@ app.post('/api/trade', requireAuth, async (req, res) => {
   }
   const portfolio = loadUserPortfolio(req.session.userId);
 
-  let marketPrice;
-  try {
-    if (FINNHUB_KEY) {
-      const r = await axios.get('https://finnhub.io/api/v1/quote', {
-        params: { symbol: symbol.toUpperCase(), token: FINNHUB_KEY },
-        timeout: 8000
-      });
-      const q = r.data;
-      marketPrice = (q.c > 0 ? q.c : null) || (q.pc > 0 ? q.pc : null);
-    } else {
-      marketPrice = mockQuote(symbol).c;
-    }
-  } catch (_) {
-    return res.status(500).json({ error: 'Could not get current price — try again in a moment' });
-  }
-
+  const sym = symbol.toUpperCase();
+  const marketPrice = FINNHUB_KEY ? await getCachedQuote(sym) : mockQuote(symbol).c;
   if (!marketPrice || marketPrice <= 0) return res.status(400).json({ error: 'Price unavailable for this symbol' });
 
   // Limit orders: check if condition is met now, otherwise store as pending
@@ -479,16 +465,16 @@ app.post('/api/trade', requireAuth, async (req, res) => {
         return res.status(400).json({ error: `Insufficient funds. Need $${(limit * shares).toFixed(2)}, have $${portfolio.cash.toFixed(2)}` });
       }
       if (side === 'sell') {
-        const pos = portfolio.positions[symbol.toUpperCase()];
+        const pos = portfolio.positions[sym];
         if (!pos || pos.qty < shares) {
           return res.status(400).json({ error: `Insufficient shares. Have ${pos?.qty ?? 0}, need ${shares}` });
         }
       }
-      stmts.insertPending.run(req.session.userId, symbol.toUpperCase(), side, shares, limit, new Date().toISOString());
+      stmts.insertPending.run(req.session.userId, sym, side, shares, limit, new Date().toISOString());
       return res.json({
         success: true,
         pending: true,
-        message: `Limit order queued: ${side.toUpperCase()} ${shares} ${symbol.toUpperCase()} @ $${limit.toFixed(2)}. Will fill when market price ${side === 'buy' ? 'drops to' : 'rises to'} $${limit.toFixed(2)}.`
+        message: `Limit order queued: ${side.toUpperCase()} ${shares} ${sym} @ $${limit.toFixed(2)}. Will fill when market price ${side === 'buy' ? 'drops to' : 'rises to'} $${limit.toFixed(2)}.`
       });
     }
   }
@@ -498,7 +484,6 @@ app.post('/api/trade', requireAuth, async (req, res) => {
 
   const shares = parseFloat(qty);
   const totalCost = execPrice * shares;
-  const sym = symbol.toUpperCase();
   let realizedPnl = null;
 
   if (side === 'buy') {
