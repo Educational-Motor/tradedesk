@@ -552,6 +552,66 @@ body { display: flex; flex-direction: column; height: 100vh; }
 .user-info { display: flex; align-items: center; gap: 8px; }
 .user-name { font-size: 12px; font-weight: 600; color: var(--text-muted); }
 
+/* ── Welcome Guide ────────────────────────────────────────────────────── */
+.guide-overlay {
+  position: fixed; inset: 0; z-index: 3000;
+  background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+}
+.guide-overlay.hidden { display: none !important; }
+.guide-card {
+  width: 420px; max-width: 92vw; padding: 28px 28px 20px;
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow);
+  display: flex; flex-direction: column; gap: 16px;
+}
+.guide-header {
+  display: flex; justify-content: space-between; align-items: center;
+}
+.guide-title { font-size: 16px; font-weight: 800; color: var(--text); }
+.guide-step-label { font-size: 11px; color: var(--text-muted); font-weight: 600; letter-spacing: 0.5px; }
+.guide-progress {
+  height: 3px; background: var(--bg-card); border-radius: 2px; overflow: hidden;
+}
+.guide-progress-fill {
+  height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.3s ease;
+}
+.guide-body { font-size: 13px; color: var(--text-muted); line-height: 1.7; }
+.guide-body strong { color: var(--text); font-weight: 700; }
+.guide-body .guide-section {
+  margin-bottom: 10px;
+}
+.guide-body .guide-section:last-child { margin-bottom: 0; }
+.guide-body .guide-label {
+  display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+  padding: 2px 6px; border-radius: 3px; margin-right: 6px;
+}
+.guide-label.green  { background: var(--green-dim); color: var(--green); }
+.guide-label.blue   { background: var(--blue-dim);  color: var(--blue); }
+.guide-label.yellow { background: rgba(227,179,65,0.15); color: var(--yellow); }
+.guide-label.red    { background: var(--red-dim);   color: var(--red); }
+.guide-footer {
+  display: flex; justify-content: space-between; align-items: center; margin-top: 4px;
+}
+.guide-nav { display: flex; gap: 8px; }
+.guide-skip {
+  font-size: 12px; color: var(--text-dim); transition: color 0.15s;
+}
+.guide-skip:hover { color: var(--text-muted); }
+.guide-prev, .guide-next {
+  padding: 7px 16px; border-radius: var(--radius); font-weight: 700; font-size: 12px;
+  transition: opacity 0.15s;
+}
+.guide-prev {
+  background: var(--bg-card); color: var(--text-muted); border: 1px solid var(--border);
+}
+.guide-prev:hover { color: var(--text); }
+.guide-prev:disabled { opacity: 0.3; cursor: not-allowed; }
+.guide-next {
+  background: var(--accent); color: #fff;
+}
+.guide-next:hover { opacity: 0.85; }
+
 /* ── Scrollbars ────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }

@@ -101,6 +101,7 @@ async function submitAuth() {
   } else {
     $('header-username').textContent = res.username;
     hideAuth();
+    if (res.isNewUser) state.showGuide = true;
     init();
   }
 }
@@ -175,6 +176,89 @@ async function init() {
   setupEventListeners();
   initDragHandles();
   startTicker();
+
+  // Show welcome guide for brand-new users
+  if (state.showGuide) {
+    state.showGuide = false;
+    showWelcomeGuide();
+  }
+}
+
+// ── Welcome Guide ────────────────────────────────────────────────────────────
+function showWelcomeGuide() {
+  const steps = [
+    {
+      html: `
+        <div class="guide-section">You start with <strong>$20,000 in paper money</strong> — no real cash, so feel free to experiment.</div>
+        <div class="guide-section">Your balance and P&L are always visible in the <strong>top-right header</strong>. Green means you're up, red means you're down.</div>
+      `
+    },
+    {
+      html: `
+        <div class="guide-section"><span class="guide-label green">BUY</span> Purchase shares of a stock at the current market price.</div>
+        <div class="guide-section"><span class="guide-label red">SELL</span> Sell shares you own to lock in profit (or cut a loss).</div>
+        <div class="guide-section">Use the <strong>Order Entry</strong> panel on the right. Pick a symbol, choose BUY or SELL, enter a quantity, and hit the button.</div>
+        <div class="guide-section"><span class="guide-label blue">LIMIT</span> Want a specific price? Switch to <strong>Limit</strong> order type and set your price — it'll fill when the market hits it.</div>
+      `
+    },
+    {
+      html: `
+        <div class="guide-section"><span class="guide-label blue">BUYING POWER</span> This is how much you can invest right now. It includes your cash <em>plus</em> any unrealized gains from positions that are up.</div>
+        <div class="guide-section">If a stock you own goes up 20%, those gains become available to reinvest — no need to sell first.</div>
+      `
+    },
+    {
+      html: `
+        <div class="guide-section"><span class="guide-label yellow">WATCHLIST</span> The left panel tracks stocks you care about. Click <strong>+</strong> to add any symbol.</div>
+        <div class="guide-section"><span class="guide-label blue">CHART</span> Click any symbol to load its live chart. Use the timeframe buttons (1D, 5D, 1M, 3M) and toggle indicators like EMA, SMA, RSI, and MACD.</div>
+        <div class="guide-section"><span class="guide-label green">SEARCH</span> The search bar at the top finds any stock by ticker or company name.</div>
+      `
+    },
+    {
+      html: `
+        <div class="guide-section"><strong>Positions</strong> — your current holdings, with live P&L per stock.</div>
+        <div class="guide-section"><strong>Order History</strong> — a log of every trade you've made.</div>
+        <div class="guide-section"><strong>Position Sizer</strong> — helps you calculate how many shares to buy based on your risk tolerance.</div>
+        <div class="guide-section"><strong>Price Alerts</strong> — get notified when a stock hits a target price.</div>
+        <div class="guide-section" style="margin-top:8px;">That's it — you're ready to trade. Good luck!</div>
+      `
+    },
+  ];
+
+  const titles = [
+    'Your Paper Account',
+    'Buying & Selling',
+    'Buying Power',
+    'Watchlist, Charts & Search',
+    'Everything Else',
+  ];
+
+  let step = 0;
+  const overlay = $('guide-overlay');
+  const body = $('guide-body');
+  const stepNum = $('guide-step-num');
+  const bar = $('guide-progress-bar');
+  const prevBtn = $('guide-prev');
+  const nextBtn = $('guide-next');
+
+  function render() {
+    stepNum.textContent = step + 1;
+    bar.style.width = ((step + 1) / steps.length * 100) + '%';
+    body.innerHTML = `<div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:10px;">${titles[step]}</div>` + steps[step].html;
+    prevBtn.disabled = step === 0;
+    nextBtn.textContent = step === steps.length - 1 ? 'Get Started' : 'Next';
+  }
+
+  prevBtn.onclick = () => { if (step > 0) { step--; render(); } };
+  nextBtn.onclick = () => {
+    if (step < steps.length - 1) { step++; render(); }
+    else overlay.classList.add('hidden');
+  };
+  $('guide-skip').onclick = () => overlay.classList.add('hidden');
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.classList.add('hidden'); };
+
+  render();
+  overlay.classList.remove('hidden');
 }
 
 // ── Resizable Panels ──────────────────────────────────────────────────────────
@@ -879,7 +963,7 @@ function renderPortfolio() {
   pnlEl.textContent = `${pnl >= 0 ? '+' : ''}${formatDollar(pnl)} (${pnl >= 0 ? '+' : ''}${pnlPctSafe}%)`;
   pnlEl.className = `acct-pnl ${pnl >= 0 ? 'pos' : 'neg'}`;
 
-  $('order-avail-cash').textContent = formatDollar(p.cash);
+  $('order-avail-cash').textContent = formatDollar(p.buyingPower ?? p.cash);
 
   // Positions
   const posList = $('positions-list');
@@ -1342,7 +1426,8 @@ async function updateOrderEstimate() {
   const estPrice = orderType === 'limit' ? limitPrice : (price || 0);
   const est = estPrice * qty;
   $('order-est-total').textContent = est ? formatDollar(est) : '—';
-  $('order-avail-cash').textContent = state.portfolio ? formatDollar(state.portfolio.cash) : '—';
+  const bp = state.portfolio?.buyingPower ?? state.portfolio?.cash;
+  $('order-avail-cash').textContent = state.portfolio ? formatDollar(bp) : '—';
 }
 
 async function submitOrder() {

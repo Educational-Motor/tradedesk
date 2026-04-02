@@ -20,7 +20,7 @@ Built as a learning tool for anyone who wants to develop a trading intuition bef
 **News & Sentiment**
 - Live news feed categorized by: All · Market · Symbol · Geopolitical · Energy · Forex · Crypto · M&A
 - AI sentiment scoring on every headline (Bullish / Bearish / Neutral) using keyword analysis
-- Breaking news popup with one-click buy/sell from the alert
+- Breaking news popup with one click buy/sell from the alert
 - Scrolling news ticker at the bottom
 
 **Trading**
@@ -152,4 +152,4 @@ MIT — use it, fork it, learn from it.
 
 ---
 
-*Built by [@Educational-Motor](https://github.com/Educational-Motor) · [@yu.karlandrew](https://instagram.com/yu.karlandrew)*
+*Built by [@Educational-Motor](https://github.com/Educational-Motor) · [@yu.karlandrew](https://instagram.com/yu.karlandrew)* · [Claude]

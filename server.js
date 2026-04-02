@@ -41,6 +41,11 @@ db.pragma('foreign_keys = ON');
 // Migration: add resets column if missing
 try { db.exec('ALTER TABLE portfolios ADD COLUMN resets INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
 
+// Migration: add last_active column if missing
+try { db.exec("ALTER TABLE users ADD COLUMN last_active TEXT NOT NULL DEFAULT ''"); } catch (_) {}
+// Backfill last_active for existing users that don't have it set
+try { db.exec("UPDATE users SET last_active = created_at WHERE last_active = ''"); } catch (_) {}
+
 // Migration: reset all portfolios to $20k (from $100k) without counting as a reset
 try {
   const needsMigration = db.prepare(
@@ -135,6 +140,14 @@ const stmts = {
   triggerAlert: db.prepare('UPDATE alerts SET triggered = 1, triggered_at = ?, trigger_price = ? WHERE id = ?'),
   getUnseen: db.prepare('SELECT * FROM alerts WHERE user_id = ? AND triggered = 1 AND seen = 0'),
   markSeen: db.prepare('UPDATE alerts SET seen = 1 WHERE user_id = ? AND triggered = 1 AND seen = 0'),
+  // Activity tracking
+  updateLastActive: db.prepare('UPDATE users SET last_active = ? WHERE id = ?'),
+  // Inactive account cleanup
+  getInactiveUsers: db.prepare("SELECT id FROM users WHERE last_active < ?"),
+  deletePortfolio: db.prepare('DELETE FROM portfolios WHERE user_id = ?'),
+  deletePendingOrders: db.prepare('DELETE FROM pending_orders WHERE user_id = ?'),
+  deleteAlerts: db.prepare('DELETE FROM alerts WHERE user_id = ?'),
+  deleteUser: db.prepare('DELETE FROM users WHERE id = ?'),
 };
 
 function getUserByUsername(username) {
@@ -215,8 +228,14 @@ app.use('/api/register', authLimiter);
 
 // ── Auth Middleware ───────────────────────────────────────────────────────────
 function requireAuth(req, res, next) {
-  if (req.session?.userId) return next();
-  res.status(401).json({ error: 'Not authenticated' });
+  if (!req.session?.userId) return res.status(401).json({ error: 'Not authenticated' });
+  // Track last activity (throttled to once per minute to avoid excess writes)
+  const now = Date.now();
+  if (!req.session._lastActiveUpdate || now - req.session._lastActiveUpdate > 60000) {
+    req.session._lastActiveUpdate = now;
+    stmts.updateLastActive.run(new Date().toISOString(), req.session.userId);
+  }
+  next();
 }
 
 // ── Auth Routes ───────────────────────────────────────────────────────────────
@@ -241,7 +260,7 @@ app.post('/api/register', async (req, res) => {
 
   req.session.userId = id;
   req.session.username = username;
-  res.json({ success: true, username });
+  res.json({ success: true, username, isNewUser: true });
 });
 
 app.post('/api/login', async (req, res) => {
@@ -255,6 +274,7 @@ app.post('/api/login', async (req, res) => {
 
   req.session.userId = user.id;
   req.session.username = user.username;
+  stmts.updateLastActive.run(new Date().toISOString(), user.id);
   res.json({ success: true, username: user.username });
 });
 
@@ -437,8 +457,16 @@ app.get('/api/calendar', async (req, res) => {
 });
 
 // ── Paper Trading Routes ────────────────────────────────────────────────────
-app.get('/api/portfolio', requireAuth, (req, res) => {
-  res.json(loadUserPortfolio(req.session.userId));
+app.get('/api/portfolio', requireAuth, async (req, res) => {
+  const portfolio = loadUserPortfolio(req.session.userId);
+  // Calculate buying power = cash + net unrealized gains
+  let unrealizedGains = 0;
+  for (const [sym, pos] of Object.entries(portfolio.positions)) {
+    const price = FINNHUB_KEY ? await getCachedQuote(sym) : mockQuote(sym).c;
+    if (price) unrealizedGains += (price - pos.avgCost) * pos.qty;
+  }
+  portfolio.buyingPower = Math.max(0, portfolio.cash + unrealizedGains);
+  res.json(portfolio);
 });
 
 app.post('/api/trade', requireAuth, async (req, res) => {
@@ -461,8 +489,16 @@ app.post('/api/trade', requireAuth, async (req, res) => {
     if (!conditionMet) {
       // Validate the user can afford it before queuing
       const shares = parseFloat(qty);
-      if (side === 'buy' && portfolio.cash < limit * shares) {
-        return res.status(400).json({ error: `Insufficient funds. Need $${(limit * shares).toFixed(2)}, have $${portfolio.cash.toFixed(2)}` });
+      if (side === 'buy') {
+        let unrealizedGains = 0;
+        for (const [posSym, pos] of Object.entries(portfolio.positions)) {
+          const livePrice = await getCachedQuote(posSym);
+          if (livePrice) unrealizedGains += (livePrice - pos.avgCost) * pos.qty;
+        }
+        const buyingPower = Math.max(0, portfolio.cash + unrealizedGains);
+        if (buyingPower < limit * shares) {
+          return res.status(400).json({ error: `Insufficient buying power. Need $${(limit * shares).toFixed(2)}, have $${buyingPower.toFixed(2)}` });
+        }
       }
       if (side === 'sell') {
         const pos = portfolio.positions[sym];
@@ -487,7 +523,14 @@ app.post('/api/trade', requireAuth, async (req, res) => {
   let realizedPnl = null;
 
   if (side === 'buy') {
-    if (portfolio.cash < totalCost) return res.status(400).json({ error: `Insufficient funds. Need $${totalCost.toFixed(2)}, have $${portfolio.cash.toFixed(2)}` });
+    // Buying power = cash + net unrealized gains from held positions
+    let unrealizedGains = 0;
+    for (const [posSym, pos] of Object.entries(portfolio.positions)) {
+      const livePrice = await getCachedQuote(posSym);
+      if (livePrice) unrealizedGains += (livePrice - pos.avgCost) * pos.qty;
+    }
+    const buyingPower = Math.max(0, portfolio.cash + unrealizedGains);
+    if (buyingPower < totalCost) return res.status(400).json({ error: `Insufficient buying power. Need $${totalCost.toFixed(2)}, have $${buyingPower.toFixed(2)}` });
     portfolio.cash -= totalCost;
     if (!portfolio.positions[sym]) portfolio.positions[sym] = { qty: 0, avgCost: 0 };
     const pos = portfolio.positions[sym];
@@ -512,6 +555,15 @@ app.post('/api/trade', requireAuth, async (req, res) => {
   portfolio.orders.unshift(order);
   portfolio.orders = portfolio.orders.slice(0, 100);
   saveUserPortfolio(req.session.userId, portfolio);
+
+  // Recalculate buying power for the response
+  let postGains = 0;
+  for (const [posSym, pos] of Object.entries(portfolio.positions)) {
+    const livePrice = await getCachedQuote(posSym);
+    if (livePrice) postGains += (livePrice - pos.avgCost) * pos.qty;
+  }
+  portfolio.buyingPower = Math.max(0, portfolio.cash + postGains);
+
   res.json({ success: true, order, portfolio });
 });
 
@@ -884,6 +936,27 @@ function mockNews(symbol) {
   ];
   return headlines;
 }
+
+// ── Inactive Account Cleanup (30 days) ──────────────────────────────────────
+const deleteInactiveUser = db.transaction((userId) => {
+  stmts.deletePendingOrders.run(userId);
+  stmts.deleteAlerts.run(userId);
+  stmts.deletePortfolio.run(userId);
+  stmts.deleteUser.run(userId);
+});
+
+function cleanupInactiveAccounts() {
+  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const inactive = stmts.getInactiveUsers.all(cutoff);
+  for (const { id } of inactive) {
+    deleteInactiveUser(id);
+  }
+  if (inactive.length) console.log(`🧹 Cleaned up ${inactive.length} inactive account(s)`);
+}
+
+// Run cleanup on startup and then once daily
+cleanupInactiveAccounts();
+setInterval(cleanupInactiveAccounts, 24 * 60 * 60 * 1000);
 
 // ── Start Server ────────────────────────────────────────────────────────────
 const server = app.listen(PORT, () => {

@@ -76,7 +76,7 @@
 
     <!-- Social Links -->
     <div class="social-links">
-      <a href="https://github.com/Educational-Motor" target="_blank" rel="noopener" class="social-btn">
+      <a href="https://github.com/Educational-Motor/tradedesk" target="_blank" rel="noopener" class="social-btn">
         <span class="social-icon">⌥</span> GitHub
       </a>
       <a href="https://instagram.com/yu.karlandrew" target="_blank" rel="noopener" class="social-btn">
@@ -173,7 +173,7 @@
           <span id="order-est-total">—</span>
         </div>
         <div class="order-avail">
-          <span>Available Cash</span>
+          <span>Buying Power</span>
           <span id="order-avail-cash">—</span>
         </div>
         <button id="submit-order" class="btn-buy-full">BUY</button>
@@ -329,6 +329,25 @@
     </div>
     <button id="auth-submit" class="auth-submit">Sign In</button>
     <div id="auth-msg" class="auth-msg hidden"></div>
+  </div>
+</div>
+
+<!-- ── Welcome Guide (new users only) ──────────────────────────────────── -->
+<div id="guide-overlay" class="guide-overlay hidden">
+  <div class="guide-card">
+    <div class="guide-header">
+      <span class="guide-title">Welcome to TradeDesk</span>
+      <span class="guide-step-label">Step <span id="guide-step-num">1</span> of 5</span>
+    </div>
+    <div class="guide-progress"><div id="guide-progress-bar" class="guide-progress-fill" style="width:20%"></div></div>
+    <div id="guide-body" class="guide-body"></div>
+    <div class="guide-footer">
+      <button id="guide-skip" class="guide-skip">Skip</button>
+      <div class="guide-nav">
+        <button id="guide-prev" class="guide-prev">Back</button>
+        <button id="guide-next" class="guide-next">Next</button>
+      </div>
+    </div>
   </div>
 </div>
 
