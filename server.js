@@ -352,7 +352,7 @@ async function fetchFinnhubCategory(category) {
   return r.data || [];
 }
 
-const DIRECT_CATEGORIES = { forex: 'forex', crypto: 'crypto', merger: 'merger' };
+const DIRECT_CATEGORIES = { crypto: 'crypto', merger: 'merger' };
 
 app.get('/api/news/market', async (req, res) => {
   const { tab = 'market' } = req.query;
@@ -362,7 +362,7 @@ app.get('/api/news/market', async (req, res) => {
 
     if (tab === 'all') {
       const results = await Promise.all(
-        ['general', 'forex', 'crypto', 'merger'].map(fetchFinnhubCategory)
+        ['general', 'crypto', 'merger'].map(fetchFinnhubCategory)
       );
       articles = results.flat().sort((a, b) => b.datetime - a.datetime);
     } else if (DIRECT_CATEGORIES[tab]) {
