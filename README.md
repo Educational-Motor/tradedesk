@@ -11,9 +11,9 @@ Built as a learning tool for anyone who wants to develop a trading intuition bef
 ## Features
 
 **Market Data**
-- Real-time stock prices via Finnhub WebSocket — live tick-by-tick updates with price flash animations
+- Real-time stock prices via Finnhub WebSocket - live tick-by-tick updates with price flash animations
 - Candlestick charts powered by TradingView Lightweight Charts with EMA 20, SMA 50, SMA 200 overlays
-- RSI (14), MACD (12/26/9), and Volume indicators — all calculated client-side
+- RSI (14), MACD (12/26/9), and Volume indicators - all calculated client-side
 - 4 timeframes: 1D · 5D · 1M · 3M
 - Historical OHLCV data from Yahoo Finance (no extra API key needed)
 
@@ -31,18 +31,18 @@ Built as a learning tool for anyone who wants to develop a trading intuition bef
 - Portfolio reset with tracked reset count
 
 **Tools**
-- **Position Sizer** — enter price, stop loss, and risk % to calculate exact share count and dollar risk
-- **Fear & Greed Meter** — composite sentiment index built from VIX, SPY momentum, and RSI-14
-- **Price Alerts** — set target prices, get notified when a stock hits them
-- **Economic Calendar** — FOMC, CPI, GDP, Jobs reports, and earnings dates
+- **Position Sizer** - enter price, stop loss, and risk % to calculate exact share count and dollar risk
+- **Fear & Greed Meter** - composite sentiment index built from VIX, SPY momentum, and RSI-14
+- **Price Alerts** - set target prices, get notified when a stock hits them
+- **Economic Calendar** - FOMC, CPI, GDP, Jobs reports, and earnings dates
 
 **Platform**
-- User accounts — register/login, each user has their own isolated portfolio
-- **Leaderboard** — ranked competition with live portfolio values, return %, win rate, trade count, and reset tracking
+- User accounts - register/login, each user has their own isolated portfolio
+- **Leaderboard** - ranked competition with live portfolio values, return %, win rate, trade count, and reset tracking
 - Watchlist with live quote updates
 - Recommended stocks by sector (Indices · Tech · Energy · Finance)
 - Market hours for NYSE, LSE, TSE, SSE
-- Resizable panels — drag the column dividers to customize your layout
+- Resizable panels - drag the column dividers to customize your layout
 
 ---
 
@@ -52,10 +52,10 @@ Built as a learning tool for anyone who wants to develop a trading intuition bef
 |-------|------|
 | Backend | Node.js, Express |
 | Real-time | WebSocket (ws) |
-| Frontend | Vanilla JS — no framework |
+| Frontend | Vanilla JS - no framework |
 | Charts | TradingView Lightweight Charts v4.1.3 |
 | Market data | Finnhub.io (quotes, news, search, earnings) |
-| Historical data | Yahoo Finance (candles, VIX — no key needed) |
+| Historical data | Yahoo Finance (candles, VIX - no key needed) |
 | Auth | bcryptjs + express-session |
 | Storage | SQLite (better-sqlite3) |
 
@@ -92,7 +92,7 @@ npm start
 
 Open [http://localhost:3000](http://localhost:3000)
 
-> **No API key?** Leave `FINNHUB_API_KEY` empty and the app runs in **Demo Mode** with simulated prices and mock news — fully functional for testing.
+> **No API key?** Leave `FINNHUB_API_KEY` empty and the app runs in **Demo Mode** with simulated prices and mock news - fully functional for testing.
 
 ---
 
@@ -158,8 +158,8 @@ flyctl certs add yourdomain.xyz
 
 ## License
 
-MIT — use it, fork it, learn from it.
+MIT - use it, fork it, learn from it.
 
 ---
 
-*Built by [@Educational-Motor](https://github.com/Educational-Motor) · [@yu.karlandrew](https://instagram.com/yu.karlandrew)*
+*Built by [@Educational-Motor](https://github.com/Educational-Motor) · [@yu.karlandrew](https://instagram.com/yu.karlandrew)* · Assisted by _ClaudeAnthropic_
