@@ -937,7 +937,7 @@ function mockNews(symbol) {
   return headlines;
 }
 
-// ── Inactive Account Cleanup (30 days) ──────────────────────────────────────
+// ── Inactive Account Cleanup (45 days) ──────────────────────────────────────
 const deleteInactiveUser = db.transaction((userId) => {
   stmts.deletePendingOrders.run(userId);
   stmts.deleteAlerts.run(userId);
@@ -946,7 +946,7 @@ const deleteInactiveUser = db.transaction((userId) => {
 });
 
 function cleanupInactiveAccounts() {
-  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const cutoff = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString();
   const inactive = stmts.getInactiveUsers.all(cutoff);
   for (const { id } of inactive) {
     deleteInactiveUser(id);

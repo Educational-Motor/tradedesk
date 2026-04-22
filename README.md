@@ -4,7 +4,7 @@ A live market terminal for paper trading. Practice reading charts, reacting to n
 
 Built as a learning tool for anyone who wants to develop a trading intuition before putting real money on the line.
 
-> **Live:** [papertradedesk.duckdns.org](https://papertradedesk.duckdns.org)
+> **Live:** [papertradedesk.fly.dev](https://papertradedesk.fly.dev)
 
 ---
 
@@ -111,6 +111,8 @@ Open [http://localhost:3000](http://localhost:3000)
 ```
 tradedesk/
 ├── server.js          # Express server, API routes, WebSocket proxy
+├── Dockerfile
+├── fly.toml           # Fly.io deployment config
 ├── public/
 │   ├── index.html     # Main trading terminal
 │   ├── app.js         # Frontend logic (charts, trading, UI)
@@ -127,22 +129,30 @@ tradedesk/
 
 ## Deployment
 
-Deployed on DigitalOcean with Nginx and Let's Encrypt SSL.
+Deployed on [Fly.io](https://fly.io) (free tier) with persistent SQLite storage.
 
-1. Create an Ubuntu droplet on [DigitalOcean](https://digitalocean.com)
-2. SSH in and run:
+1. Install the Fly CLI: `curl -L https://fly.io/install.sh | sh`
+2. Sign up and log in: `flyctl auth signup`
+3. Create the app and volume:
 ```bash
-apt update && apt upgrade -y
-curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt install -y nodejs nginx
-npm install -g pm2
-git clone https://github.com/Educational-Motor/tradedesk.git && cd tradedesk
-npm install
-nano .env  # add your keys
-pm2 start server.js --name tradedesk && pm2 startup && pm2 save
+flyctl apps create your-app-name
+flyctl volumes create your-app-name_data --size 1 --region iad
 ```
-3. Configure Nginx to proxy port 80 → 3000 (with WebSocket upgrade headers)
-4. Set up SSL with `certbot --nginx`
-5. Enable firewall: `ufw allow 22 && ufw allow 80 && ufw allow 443 && ufw enable`
+4. Set secrets:
+```bash
+flyctl secrets set FINNHUB_API_KEY=your_key SESSION_SECRET=your_secret
+```
+5. Deploy:
+```bash
+flyctl deploy
+```
+
+Your app will be live at `https://your-app-name.fly.dev`.
+
+**Custom domain** (optional): buy a domain from [Porkbun](https://porkbun.com) (~$1-2/year for `.xyz`), manage DNS on [Cloudflare](https://cloudflare.com) for free, then:
+```bash
+flyctl certs add yourdomain.xyz
+```
 
 ---
 
@@ -152,4 +162,4 @@ MIT — use it, fork it, learn from it.
 
 ---
 
-*Built by [@Educational-Motor](https://github.com/Educational-Motor) · [@yu.karlandrew](https://instagram.com/yu.karlandrew)* · [Claude]
+*Built by [@Educational-Motor](https://github.com/Educational-Motor) · [@yu.karlandrew](https://instagram.com/yu.karlandrew)*
